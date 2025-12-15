@@ -130,6 +130,61 @@ spec:
           value: true
           help: "记录所有解锁操作日志"
 
+    - group: totp
+      label: 动态密码
+      formSchema:
+        - $formkit: checkbox
+          name: enableTotp
+          id: enableTotp
+          key: enableTotp
+          label: 启用动态密码
+          value: false
+          help: "启用后可使用时效性动态密码解锁加密内容"
+        
+        - $formkit: select
+          name: validityPeriod
+          id: validityPeriod
+          key: validityPeriod
+          label: 密码有效期
+          value: DAY_1
+          options:
+            - label: 30秒 (最安全)
+              value: SECONDS_30
+            - label: 1小时
+              value: HOUR_1
+            - label: 1天 (推荐)
+              value: DAY_1
+            - label: 1周
+              value: WEEK_1
+            - label: 1月
+              value: MONTH_1
+          help: "密码更换频率，推荐使用每日更换"
+        
+        - $formkit: text
+          name: totpSecret
+          id: totpSecret
+          key: totpSecret
+          label: TOTP 密钥
+          value: ""
+          help: "留空后点击保存，然后在浏览器控制台执行: fetch('/apis/encrypt.halo.run/v1alpha1/totp/generate',{method:'POST'}).then(r=>r.json()).then(d=>{prompt('密钥已生成，请复制:',d.secret)})"
+        
+        - $formkit: password
+          name: masterKey
+          id: masterKey
+          key: masterKey
+          label: 万能密钥
+          value: ""
+          help: "备用固定密码，永不过期，用于核心用户或忘记动态密码时使用"
+        
+        - $formkit: text
+          name: totpApiUrl
+          id: totpApiUrl
+          key: totpApiUrl
+          label: 获取当前密码
+          value: "/apis/encrypt.halo.run/v1alpha1/totp/current"
+          disabled: true
+          help: "在浏览器新标签页访问此地址可查看当前动态密码"
+
     - group: categoryEncrypt
       label: 分类加密
       formSchema:

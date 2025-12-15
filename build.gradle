@@ -16,6 +16,9 @@ dependencies {
     
     // BCrypt for password hashing
     implementation 'org.springframework.security:spring-security-crypto'
+    
+    // Commons Codec for Base32 (TOTP)
+    implementation 'commons-codec:commons-codec:1.15'
 
     testImplementation 'run.halo.app:api'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'

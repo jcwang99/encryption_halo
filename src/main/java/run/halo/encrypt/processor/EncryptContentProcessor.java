@@ -44,6 +44,12 @@ public class EncryptContentProcessor implements ReactivePostContentHandler {
     private static int lockDurationMinutes = 15;
     private static boolean enableUnlockLog = true;
 
+    // TOTP 配置
+    private static boolean totpEnabled = false;
+    private static String totpSecret = "";
+    private static String totpValidityPeriod = "DAY_1";
+    private static String masterKey = "";
+
     private final ReactiveSettingFetcher settingFetcher;
 
     // 匹配 [encrypt type="password" password="xxx"]内容[/encrypt]
@@ -82,6 +88,15 @@ public class EncryptContentProcessor implements ReactivePostContentHandler {
                         maxFailAttempts = setting.get("maxFailAttempts").asInt(5);
                         lockDurationMinutes = setting.get("lockDuration").asInt(15);
                         enableUnlockLog = setting.get("enableUnlockLog").asBoolean(true);
+                    }
+                })
+                .then(settingFetcher.get("totp"))
+                .doOnNext(totpSetting -> {
+                    if (totpSetting != null) {
+                        totpEnabled = totpSetting.get("enableTotp").asBoolean(false);
+                        totpSecret = totpSetting.get("totpSecret").asText("");
+                        totpValidityPeriod = totpSetting.get("validityPeriod").asText("DAY_1");
+                        masterKey = totpSetting.get("masterKey").asText("");
                     }
                 })
                 .then();
@@ -239,8 +254,37 @@ public class EncryptContentProcessor implements ReactivePostContentHandler {
             return new VerifyResult(false, "加密区块不存在", null, false, 0);
         }
 
-        // 验证密码
-        if (!PASSWORD_ENCODER.matches(password, block.passwordHash)) {
+        // 验证密码（优先级：TOTP > 万能密钥 > 区块密码）
+        boolean passwordValid = false;
+        String unlockMethod = "";
+
+        // 1. 尝试 TOTP 动态密码（6位纯数字）
+        if (totpEnabled && !totpSecret.isEmpty() && password.matches("\\d{6}")) {
+            try {
+                run.halo.encrypt.util.TotpUtils.ValidityPeriod period = run.halo.encrypt.util.TotpUtils.ValidityPeriod
+                        .valueOf(totpValidityPeriod);
+                if (run.halo.encrypt.util.TotpUtils.verifyCode(totpSecret, password, period)) {
+                    passwordValid = true;
+                    unlockMethod = "TOTP动态密码";
+                }
+            } catch (Exception e) {
+                log.warn("TOTP 验证异常: {}", e.getMessage());
+            }
+        }
+
+        // 2. 尝试万能密钥
+        if (!passwordValid && !masterKey.isEmpty() && masterKey.equals(password)) {
+            passwordValid = true;
+            unlockMethod = "万能密钥";
+        }
+
+        // 3. 尝试区块固定密码
+        if (!passwordValid && PASSWORD_ENCODER.matches(password, block.passwordHash)) {
+            passwordValid = true;
+            unlockMethod = "区块密码";
+        }
+
+        if (!passwordValid) {
             // 记录失败尝试
             recordFailedAttempt(lockKey);
 
@@ -264,7 +308,7 @@ public class EncryptContentProcessor implements ReactivePostContentHandler {
         FAILED_ATTEMPTS.remove(lockKey);
 
         if (enableUnlockLog) {
-            log.info("解锁成功 - blockId: {}, IP: {}", blockId, clientIp);
+            log.info("解锁成功 - blockId: {}, IP: {}, 方式: {}", blockId, clientIp, unlockMethod);
         }
 
         return new VerifyResult(true, "解锁成功", block.content, false, 0);
