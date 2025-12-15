@@ -45,14 +45,15 @@
 
 ## 📥 安装
 
-### 方式一：应用市场
-1. 进入 Halo 后台 → 插件
-2. 搜索「文章加密」
-3. 点击安装
+### 源码编译
 
-### 方式二：手动安装
-1. 下载 [Releases](https://github.com/jcwang99/encryption_halo/releases) 中的 jar 文件
-2. 上传到 Halo 后台 → 插件
+```bash
+git clone https://github.com/jcwang99/encryption_halo.git
+cd encryption_halo
+./gradlew build
+```
+
+编译完成后，在 `build/libs/` 目录下找到 jar 文件，上传到 Halo 后台 → 插件。
 
 ---
 
