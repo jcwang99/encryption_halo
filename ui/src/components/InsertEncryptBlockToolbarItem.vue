@@ -29,9 +29,14 @@ const hint = ref("");
 const hintType = ref<"text" | "html" | "image">("text"); // 提示类型
 const price = ref("");
 const contentToEncrypt = ref("");
+const expiresOption = ref<"" | "7" | "30" | "90" | "custom">(""); // 过期选项
+const customExpiresDate = ref(""); // 自定义过期日期
 
 const isPasswordValid = computed(() => {
   if (encryptType.value !== "password") return true;
+  // 密码可以为空（使用 TOTP 动态密码）
+  // 如果输入了密码，则必须 >= 4 位且两次一致
+  if (!password.value && !confirmPassword.value) return true; // 允许不设密码
   return password.value.length >= 4 && password.value === confirmPassword.value;
 });
 
@@ -129,8 +134,23 @@ function generateMetaComment(): string {
     meta += `hint="${escapeAttr(hint.value)}"\n`;
     meta += `hintType="${hintType.value}"\n`;
   }
+  const expiresDate = getExpiresDate();
+  if (expiresDate) {
+    meta += `expires="${expiresDate}"\n`;
+  }
   meta += `-->\n\n`;
   return meta;
+}
+
+// 计算过期日期
+function getExpiresDate(): string {
+  if (!expiresOption.value) return "";
+  if (expiresOption.value === "custom") return customExpiresDate.value;
+  
+  const days = parseInt(expiresOption.value);
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return date.toISOString().split('T')[0]; // YYYY-MM-DD
 }
 
 // 部分加密：插入 [encrypt] 标签
@@ -142,10 +162,13 @@ function insertPartialEncryption() {
     ? ` hint="${escapeAttr(hint.value)}" hint-type="${hintType.value}"`
     : "";
 
+  const expiresDate = getExpiresDate();
+  const expiresAttr = expiresDate ? ` expires="${expiresDate}"` : "";
+
   if (encryptType.value === "password") {
-    encryptTag = `[encrypt type="password" password="${escapeAttr(password.value)}" id="${blockId}"${hintAttr}]\n${contentToEncrypt.value}\n[/encrypt]`;
+    encryptTag = `[encrypt type="password" password="${escapeAttr(password.value)}" id="${blockId}"${hintAttr}${expiresAttr}]\n${contentToEncrypt.value}\n[/encrypt]`;
   } else {
-    encryptTag = `[encrypt type="paid" price="${price.value}" id="${blockId}"${hintAttr}]\n${contentToEncrypt.value}\n[/encrypt]`;
+    encryptTag = `[encrypt type="paid" price="${price.value}" id="${blockId}"${hintAttr}${expiresAttr}]\n${contentToEncrypt.value}\n[/encrypt]`;
   }
 
   // 如果有选中文本，替换它；否则在光标处插入
@@ -235,17 +258,18 @@ function escapeAttr(str: string): string {
         <!-- 密码设置 -->
         <template v-if="encryptType === 'password'">
           <div class="form-group">
-            <label class="form-label">设置密码 <span class="required">*</span></label>
+            <label class="form-label">设置密码（可选）</label>
             <input
               type="password"
               v-model="password"
               class="form-input"
-              placeholder="请输入密码（至少4位）"
+              placeholder="留空则仅使用动态密码/万能密钥"
               minlength="4"
             />
+            <p class="form-hint">💡 如已启用 TOTP 动态密码，可不设固定密码</p>
           </div>
-          <div class="form-group">
-            <label class="form-label">确认密码 <span class="required">*</span></label>
+          <div class="form-group" v-if="password">
+            <label class="form-label">确认密码</label>
             <input
               type="password"
               v-model="confirmPassword"
@@ -298,6 +322,30 @@ function escapeAttr(str: string): string {
           </p>
           <p class="form-hint" v-if="hintType === 'image'">
             💡 输入图片URL，如二维码图片地址
+          </p>
+        </div>
+
+        <!-- 过期时间设置 -->
+        <div class="form-group">
+          <label class="form-label">加密期限（可选）</label>
+          <div class="expires-row">
+            <select v-model="expiresOption" class="expires-select">
+              <option value="">永久加密</option>
+              <option value="7">7天后公开</option>
+              <option value="30">30天后公开</option>
+              <option value="90">90天后公开</option>
+              <option value="custom">自定义日期</option>
+            </select>
+            <input
+              v-if="expiresOption === 'custom'"
+              type="date"
+              v-model="customExpiresDate"
+              class="form-input expires-date"
+              :min="new Date().toISOString().split('T')[0]"
+            />
+          </div>
+          <p class="form-hint">
+            ⏰ 到期后内容自动变为公开，无需密码
           </p>
         </div>
 
@@ -591,5 +639,31 @@ function escapeAttr(str: string): string {
   color: #3b82f6;
   margin: 0;
   line-height: 1.5;
+}
+
+/* 过期时间选择 */
+.expires-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.expires-select {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+  background: white;
+  cursor: pointer;
+}
+
+.expires-select:focus {
+  outline: none;
+  border-color: #3b82f6;
+}
+
+.expires-date {
+  flex: 1;
 }
 </style>

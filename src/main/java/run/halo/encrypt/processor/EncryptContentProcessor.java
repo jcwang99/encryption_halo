@@ -1,6 +1,7 @@
 package run.halo.encrypt.processor;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
@@ -115,15 +116,32 @@ public class EncryptContentProcessor implements ReactivePostContentHandler {
             String hint = extractAttribute(attributes, "hint", "");
             String hintType = extractAttribute(attributes, "hint-type", "text");
             String password = extractAttribute(attributes, "password", "");
+            String expires = extractAttribute(attributes, "expires", "");
+
+            // 检查是否已过期
+            if (!expires.isEmpty()) {
+                try {
+                    LocalDate expiresDate = LocalDate.parse(expires);
+                    if (LocalDate.now().isAfter(expiresDate)) {
+                        // 已过期，直接显示内容，不加密
+                        log.info("加密内容已过期，自动公开 - expires: {}", expires);
+                        matcher.appendReplacement(sb, Matcher.quoteReplacement(encryptedContent));
+                        continue;
+                    }
+                } catch (Exception e) {
+                    log.warn("解析过期日期失败: {}", expires);
+                }
+            }
 
             // 生成确定性的 blockId（基于内容哈希，刷新后保持一致）
             String blockId = generateDeterministicBlockId(encryptedContent, password);
 
-            // 存储加密内容到内存（密码用 BCrypt 哈希）
+            // 存储加密内容到内存（密码用 BCrypt 哈希，空密码存 null）
+            String passwordHash = password.isEmpty() ? null : PASSWORD_ENCODER.encode(password);
             EncryptedBlock block = new EncryptedBlock(
                     blockId,
                     type,
-                    PASSWORD_ENCODER.encode(password),
+                    passwordHash,
                     encryptedContent,
                     hint);
             ENCRYPTED_BLOCKS.put(blockId, block);
@@ -278,8 +296,9 @@ public class EncryptContentProcessor implements ReactivePostContentHandler {
             unlockMethod = "万能密钥";
         }
 
-        // 3. 尝试区块固定密码
-        if (!passwordValid && PASSWORD_ENCODER.matches(password, block.passwordHash)) {
+        // 3. 尝试区块固定密码（需要区块有设置密码，且用户输入非空）
+        if (!passwordValid && !password.isEmpty() && block.passwordHash != null
+                && !block.passwordHash.isEmpty() && PASSWORD_ENCODER.matches(password, block.passwordHash)) {
             passwordValid = true;
             unlockMethod = "区块密码";
         }

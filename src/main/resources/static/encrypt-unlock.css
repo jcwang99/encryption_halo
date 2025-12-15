@@ -3,25 +3,35 @@
  * @author Developer
  */
 
-/* 加密区块容器 */
-.encrypt-block {
+/* CSS 变量 - 亮色模式 */
+:root {
   --encrypt-primary: #4F8DFD;
+  --encrypt-primary-glow: rgba(79, 141, 253, 0.4);
   --encrypt-bg: #f8fafc;
+  --encrypt-bg-glass: rgba(248, 250, 252, 0.9);
   --encrypt-text: #334155;
+  --encrypt-text-muted: #64748b;
   --encrypt-border: #e2e8f0;
   --encrypt-shadow: 0 4px 20px rgba(79, 141, 253, 0.1);
-  --encrypt-radius: 12px;
+  --encrypt-radius: 16px;
+  --encrypt-success: #22c55e;
+  --encrypt-error: #ef4444;
+}
 
+/* 加密区块容器 */
+.encrypt-block {
   position: relative;
   margin: 24px 0;
   padding: 32px;
-  background: var(--encrypt-bg);
+  background: var(--encrypt-bg-glass);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   border: 1px solid var(--encrypt-border);
   border-radius: var(--encrypt-radius);
   box-shadow: var(--encrypt-shadow);
   text-align: center;
   overflow: hidden;
-  transition: all 0.3s ease;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .encrypt-block::before {
@@ -31,24 +41,46 @@
   left: 0;
   right: 0;
   height: 4px;
-  background: linear-gradient(90deg, var(--encrypt-primary), #a78bfa);
+  background: linear-gradient(90deg, var(--encrypt-primary), #a78bfa, #f472b6);
+  background-size: 200% 100%;
+  animation: gradientMove 3s ease infinite;
+}
+
+@keyframes gradientMove {
+
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+
+  50% {
+    background-position: 100% 50%;
+  }
 }
 
 /* 锁定图标 */
 .encrypt-lock-icon {
   color: var(--encrypt-primary);
   margin-bottom: 16px;
-  animation: lockPulse 2s ease-in-out infinite;
+  animation: lockFloat 3s ease-in-out infinite;
+  filter: drop-shadow(0 4px 8px var(--encrypt-primary-glow));
 }
 
-@keyframes lockPulse {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.05); opacity: 0.8; }
+@keyframes lockFloat {
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-6px);
+  }
 }
 
 .encrypt-lock-icon svg {
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
 }
 
 /* 信息区域 */
@@ -58,13 +90,14 @@
 
 .encrypt-type-label {
   display: inline-block;
-  padding: 4px 12px;
+  padding: 6px 16px;
   background: linear-gradient(135deg, var(--encrypt-primary), #a78bfa);
   color: white;
   font-size: 12px;
   font-weight: 600;
   border-radius: 20px;
   margin-bottom: 12px;
+  box-shadow: 0 2px 10px var(--encrypt-primary-glow);
 }
 
 .encrypt-desc {
@@ -75,7 +108,7 @@
 }
 
 .encrypt-hint {
-  color: #64748b;
+  color: var(--encrypt-text-muted);
   font-size: 13px;
   margin: 8px 0 0 0;
   font-style: italic;
@@ -93,18 +126,20 @@
 
 .encrypt-password-input {
   flex: 1;
-  padding: 12px 16px;
+  padding: 14px 18px;
   border: 2px solid var(--encrypt-border);
-  border-radius: 8px;
-  font-size: 14px;
+  border-radius: 12px;
+  font-size: 15px;
   outline: none;
-  transition: all 0.2s ease;
+  transition: all 0.3s ease;
   background: white;
+  color: var(--encrypt-text);
 }
 
 .encrypt-password-input:focus {
   border-color: var(--encrypt-primary);
-  box-shadow: 0 0 0 3px rgba(79, 141, 253, 0.1);
+  box-shadow: 0 0 0 4px var(--encrypt-primary-glow);
+  transform: scale(1.01);
 }
 
 .encrypt-password-input::placeholder {
@@ -112,25 +147,45 @@
 }
 
 .encrypt-unlock-btn {
-  padding: 12px 24px;
+  padding: 14px 28px;
   background: linear-gradient(135deg, var(--encrypt-primary), #3b82f6);
   color: white;
   border: none;
-  border-radius: 8px;
-  font-size: 14px;
+  border-radius: 12px;
+  font-size: 15px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   white-space: nowrap;
+  position: relative;
+  overflow: hidden;
+}
+
+.encrypt-unlock-btn::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  transform: rotate(45deg);
+  transition: 0.5s;
+  opacity: 0;
 }
 
 .encrypt-unlock-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(79, 141, 253, 0.3);
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 8px 25px var(--encrypt-primary-glow);
+}
+
+.encrypt-unlock-btn:hover::before {
+  left: 100%;
+  opacity: 1;
 }
 
 .encrypt-unlock-btn:active {
-  transform: translateY(0);
+  transform: translateY(0) scale(0.98);
 }
 
 .encrypt-unlock-btn:disabled {
@@ -139,113 +194,281 @@
   transform: none;
 }
 
+/* 加载状态 */
 .encrypt-unlock-btn.loading {
   position: relative;
   color: transparent;
+  pointer-events: none;
 }
 
 .encrypt-unlock-btn.loading::after {
   content: '';
   position: absolute;
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   top: 50%;
   left: 50%;
-  margin-left: -8px;
-  margin-top: -8px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
+  margin-left: -10px;
+  margin-top: -10px;
+  border: 3px solid rgba(255, 255, 255, 0.3);
   border-radius: 50%;
   border-top-color: white;
   animation: spin 0.8s linear infinite;
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* 错误消息 */
 .encrypt-error-msg {
   margin-top: 16px;
-  padding: 8px 16px;
-  background: #fef2f2;
-  color: #dc2626;
+  padding: 10px 18px;
+  background: linear-gradient(135deg, #fef2f2, #fee2e2);
+  color: var(--encrypt-error);
   font-size: 13px;
-  border-radius: 6px;
+  font-weight: 500;
+  border-radius: 10px;
   border: 1px solid #fecaca;
+  animation: errorShake 0.5s ease;
 }
 
-/* 解锁成功动画 */
+@keyframes errorShake {
+
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+
+  20%,
+  60% {
+    transform: translateX(-8px);
+  }
+
+  40%,
+  80% {
+    transform: translateX(8px);
+  }
+}
+
+/* ====================== */
+/* 解锁动画 - 超级酷炫版 */
+/* ====================== */
+
+/* 解锁进行中 */
 .encrypt-block.unlocking {
-  animation: unlockShake 0.5s ease;
+  animation: unlockPulse 0.6s ease;
 }
 
-@keyframes unlockShake {
-  0%, 100% { transform: translateX(0); }
-  25% { transform: translateX(-5px); }
-  75% { transform: translateX(5px); }
+@keyframes unlockPulse {
+  0% {
+    transform: scale(1);
+  }
+
+  30% {
+    transform: scale(1.02);
+    box-shadow: 0 0 30px var(--encrypt-primary-glow);
+  }
+
+  100% {
+    transform: scale(1);
+  }
 }
 
-.encrypt-block.unlocked {
-  animation: unlockFade 0.3s ease forwards;
+.encrypt-block.unlocking .encrypt-lock-icon {
+  animation: lockUnlock 0.6s ease forwards;
 }
 
-@keyframes unlockFade {
-  to {
+@keyframes lockUnlock {
+  0% {
+    transform: translateY(0) rotate(0);
+  }
+
+  30% {
+    transform: translateY(-10px) rotate(-10deg);
+  }
+
+  60% {
+    transform: translateY(-5px) rotate(5deg);
+  }
+
+  100% {
+    transform: translateY(0) rotate(0);
+    opacity: 0.5;
+  }
+}
+
+/* 解锁成功 */
+.encrypt-block.unlock-success {
+  animation: successGlow 0.8s ease forwards;
+}
+
+@keyframes successGlow {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 var(--encrypt-primary-glow);
+  }
+
+  50% {
+    transform: scale(1.02);
+    box-shadow: 0 0 40px var(--encrypt-primary-glow);
+    border-color: var(--encrypt-success);
+  }
+
+  100% {
     opacity: 0;
     transform: scale(0.95);
   }
 }
 
-/* 解锁后的内容容器 */
+.encrypt-block.unlock-success::before {
+  background: linear-gradient(90deg, var(--encrypt-success), #4ade80) !important;
+}
+
+/* 解锁后内容显示 */
 .encrypt-content-revealed {
-  animation: revealContent 0.5s ease forwards;
+  animation: revealContent 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  position: relative;
 }
 
 @keyframes revealContent {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(20px) scale(0.98);
+    filter: blur(10px);
   }
+
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
+    filter: blur(0);
   }
 }
 
-/* 暗色模式 */
+/* 成功标记 */
+.encrypt-content-revealed::before {
+  content: '🔓';
+  position: absolute;
+  top: -20px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 24px;
+  animation: successBounce 0.6s ease;
+  opacity: 0;
+  animation-fill-mode: forwards;
+  animation-delay: 0.2s;
+}
+
+@keyframes successBounce {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-20px) scale(0);
+  }
+
+  60% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(5px) scale(1.2);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-10px) scale(1);
+  }
+}
+
+/* ============= */
+/* 深色模式 */
+/* ============= */
+
 @media (prefers-color-scheme: dark) {
-  .encrypt-block {
+  :root {
     --encrypt-bg: #1e293b;
-    --encrypt-text: #e2e8f0;
-    --encrypt-border: #334155;
-    --encrypt-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    --encrypt-bg-glass: rgba(30, 41, 59, 0.95);
+    --encrypt-text: #f1f5f9;
+    --encrypt-text-muted: #94a3b8;
+    --encrypt-border: #475569;
+    --encrypt-shadow: 0 4px 30px rgba(0, 0, 0, 0.4);
+    --encrypt-primary-glow: rgba(79, 141, 253, 0.3);
+  }
+
+  .encrypt-block {
+    background: var(--encrypt-bg-glass);
+    border-color: var(--encrypt-border);
   }
 
   .encrypt-password-input {
     background: #0f172a;
-    color: #e2e8f0;
-    border-color: #334155;
+    color: var(--encrypt-text);
+    border-color: var(--encrypt-border);
   }
 
   .encrypt-password-input:focus {
     border-color: var(--encrypt-primary);
+    box-shadow: 0 0 0 4px var(--encrypt-primary-glow);
   }
 
-  .encrypt-hint {
-    color: #94a3b8;
+  .encrypt-password-input::placeholder {
+    color: #64748b;
   }
 
   .encrypt-error-msg {
-    background: #450a0a;
-    border-color: #7f1d1d;
+    background: linear-gradient(135deg, #450a0a, #7f1d1d);
+    border-color: #991b1b;
+    color: #fca5a5;
+  }
+
+  .encrypt-lock-icon {
+    filter: drop-shadow(0 4px 12px var(--encrypt-primary-glow));
+  }
+
+  /* 暗色模式下付费标签 */
+  .encrypt-block[data-type="paid"] .encrypt-type-label {
+    box-shadow: 0 2px 15px rgba(245, 158, 11, 0.3);
   }
 }
 
+/* 支持 Halo 主题的暗色模式类 */
+html.dark .encrypt-block,
+body.dark .encrypt-block,
+[data-theme="dark"] .encrypt-block {
+  --encrypt-bg: #1e293b;
+  --encrypt-bg-glass: rgba(30, 41, 59, 0.95);
+  --encrypt-text: #f1f5f9;
+  --encrypt-text-muted: #94a3b8;
+  --encrypt-border: #475569;
+  --encrypt-shadow: 0 4px 30px rgba(0, 0, 0, 0.4);
+  --encrypt-primary-glow: rgba(79, 141, 253, 0.3);
+  background: var(--encrypt-bg-glass);
+  border-color: var(--encrypt-border);
+}
+
+html.dark .encrypt-password-input,
+body.dark .encrypt-password-input,
+[data-theme="dark"] .encrypt-password-input {
+  background: #0f172a;
+  color: #f1f5f9;
+  border-color: #475569;
+}
+
+html.dark .encrypt-error-msg,
+body.dark .encrypt-error-msg,
+[data-theme="dark"] .encrypt-error-msg {
+  background: linear-gradient(135deg, #450a0a, #7f1d1d);
+  border-color: #991b1b;
+  color: #fca5a5;
+}
+
+/* ============= */
 /* 响应式设计 */
+/* ============= */
+
 @media (max-width: 480px) {
   .encrypt-block {
     padding: 24px 16px;
     margin: 16px 0;
+    border-radius: 12px;
   }
 
   .encrypt-unlock-form {
@@ -258,14 +481,23 @@
   }
 
   .encrypt-lock-icon svg {
-    width: 40px;
-    height: 40px;
+    width: 48px;
+    height: 48px;
   }
 }
 
+/* ============= */
 /* 付费类型样式 */
+/* ============= */
+
 .encrypt-block[data-type="paid"] .encrypt-type-label {
   background: linear-gradient(135deg, #f59e0b, #ef4444);
+  box-shadow: 0 2px 15px rgba(245, 158, 11, 0.3);
+}
+
+.encrypt-block[data-type="paid"]::before {
+  background: linear-gradient(90deg, #f59e0b, #ef4444, #f59e0b);
+  background-size: 200% 100%;
 }
 
 .encrypt-block[data-type="paid"] .encrypt-unlock-form {
@@ -273,15 +505,18 @@
 }
 
 .encrypt-price-display {
-  font-size: 24px;
+  font-size: 28px;
   font-weight: 700;
-  color: #f59e0b;
+  background: linear-gradient(135deg, #f59e0b, #ef4444);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
   margin-bottom: 16px;
 }
 
 .encrypt-price-display::before {
   content: '¥';
-  font-size: 16px;
+  font-size: 18px;
   margin-right: 2px;
 }
 
@@ -290,14 +525,16 @@
   background: linear-gradient(135deg, #f59e0b, #ef4444);
   color: white;
   border: none;
-  border-radius: 8px;
+  border-radius: 12px;
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
 }
 
 .encrypt-pay-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(245, 158, 11, 0.3);
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 8px 25px rgba(245, 158, 11, 0.4);
 }
