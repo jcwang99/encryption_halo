@@ -3,22 +3,19 @@
 apiVersion: plugin.halo.run/v1alpha1
 kind: Plugin
 metadata:
-  # The name defines how the plugin is invoked, A unique name
-  name: summaraidGPT
+  name: halo-plugin-encrypt
 spec:
   enabled: true
   requires: ">=2.21.0"
   author:
-    name: Handsome
-    website: https://lik.cc
-  logo: static/icon.svg
-  settingName: plugin-summaraidGPT-settings
-  configMapName: plugin-summaraidGPT-configMap
-  homepage: https://lik.cc
-  repo: https://github.com/acanyo/halo-plugin-summaraidGPT
-  issues: https://www.lik.cc/subject/subject-brhugeis
-  displayName: "智阅GPT-智能AI助手"
-  description: "AI摘要|AI对话|AI创作|AI润色|AI标题|标签生成，一站式焕新内容生产力。"
+    name: Developer
+    website: https://github.com
+  logo: /plugins/halo-plugin-encrypt/assets/static/logo.svg
+  settingName: plugin-encrypt-settings
+  configMapName: plugin-encrypt-configMap
+  homepage: https://github.com
+  displayName: "文章加密"
+  description: "支持文章部分内容加密，密码保护和付费解锁"
   license:
     - name: "GPL-3.0"
-      url: "https://github.com/halo-dev/plugin-starter/blob/main/LICENSE"
+      url: "https://www.gnu.org/licenses/gpl-3.0.html"

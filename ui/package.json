@@ -1,7 +1,7 @@
 {
   "type": "module",
   "scripts": {
-    "build": "run-p type-check \"build-only {@}\" --",
+    "build": "rsbuild build",
     "build-only": "rsbuild build",
     "dev": "rsbuild build --watch --env-mode=development",
     "lint:oxlint": "oxlint . --fix -D correctness --ignore-path .gitignore",
@@ -22,14 +22,9 @@
     "@halo-dev/api-client": "^2.21.0",
     "@halo-dev/components": "^2.21.0",
     "@halo-dev/console-shared": "^2.21.0",
-    "@tiptap/core": "^3.3.1",
-    "@tiptap/extension-document": "^3.3.1",
-    "@tiptap/extension-paragraph": "^3.3.1",
-    "@tiptap/extension-text": "^3.3.1",
+    "@halo-dev/richtext-editor": "^2.21.0",
+    "@tiptap/core": "^2.27.1",
     "axios": "^1.7.2",
-    "canvas-confetti": "^1.9.3",
-    "marked": "^16.2.1",
-    "naive-ui": "^2.42.0",
     "vue": "^3.5.17"
   },
   "devDependencies": {

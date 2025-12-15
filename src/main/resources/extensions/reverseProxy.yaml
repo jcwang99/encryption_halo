@@ -1,8 +1,9 @@
 apiVersion: plugin.halo.run/v1alpha1
 kind: ReverseProxy
 metadata:
-  name: summaraidGPT-static-assets
+  name: encrypt-assets
 rules:
-  - path: /static/**
+  - path: /assets/**
     file:
       directory: static
+      autoIndex: true

@@ -3,5 +3,5 @@ pluginManagement {
         gradlePluginPortal()
     }
 }
-rootProject.name = 'plugin-summaraidGPT'
+rootProject.name = 'halo-plugin-encrypt'
 include 'ui'

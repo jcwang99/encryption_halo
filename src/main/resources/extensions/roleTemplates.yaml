@@ -1,12 +1,12 @@
 apiVersion: v1alpha1
 kind: "Role"
 metadata:
-  name: role-template-manage-summaraidGPT
+  name: role-template-manage-encrypt
   labels:
     halo.run/role-template: "true"
     halo.run/hidden: "true"
     rbac.authorization.halo.run/aggregate-to-anonymous: "true"
 rules:
-  - apiGroups: ["api.summary.summaraidgpt.lik.cc"]
-    resources: ["updateContent","conversationStream","dialogConfig","summaryConfig"]
-    verbs: ["update", "create", "get", "list"]
+  - apiGroups: ["api.encrypt.halo.run"]
+    resources: ["unlock", "status", "content", "config"]
+    verbs: ["create", "get", "list"]

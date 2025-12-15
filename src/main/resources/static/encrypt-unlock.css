@@ -1,0 +1,303 @@
+/**
+ * 文章加密插件 - 解锁界面样式
+ * @author Developer
+ */
+
+/* 加密区块容器 */
+.encrypt-block {
+  --encrypt-primary: #4F8DFD;
+  --encrypt-bg: #f8fafc;
+  --encrypt-text: #334155;
+  --encrypt-border: #e2e8f0;
+  --encrypt-shadow: 0 4px 20px rgba(79, 141, 253, 0.1);
+  --encrypt-radius: 12px;
+
+  position: relative;
+  margin: 24px 0;
+  padding: 32px;
+  background: var(--encrypt-bg);
+  border: 1px solid var(--encrypt-border);
+  border-radius: var(--encrypt-radius);
+  box-shadow: var(--encrypt-shadow);
+  text-align: center;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.encrypt-block::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, var(--encrypt-primary), #a78bfa);
+}
+
+/* 锁定图标 */
+.encrypt-lock-icon {
+  color: var(--encrypt-primary);
+  margin-bottom: 16px;
+  animation: lockPulse 2s ease-in-out infinite;
+}
+
+@keyframes lockPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.05); opacity: 0.8; }
+}
+
+.encrypt-lock-icon svg {
+  width: 48px;
+  height: 48px;
+}
+
+/* 信息区域 */
+.encrypt-info {
+  margin-bottom: 24px;
+}
+
+.encrypt-type-label {
+  display: inline-block;
+  padding: 4px 12px;
+  background: linear-gradient(135deg, var(--encrypt-primary), #a78bfa);
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 20px;
+  margin-bottom: 12px;
+}
+
+.encrypt-desc {
+  color: var(--encrypt-text);
+  font-size: 15px;
+  margin: 0 0 8px 0;
+  line-height: 1.6;
+}
+
+.encrypt-hint {
+  color: #64748b;
+  font-size: 13px;
+  margin: 8px 0 0 0;
+  font-style: italic;
+}
+
+/* 解锁表单 */
+.encrypt-unlock-form {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  align-items: center;
+  max-width: 400px;
+  margin: 0 auto;
+}
+
+.encrypt-password-input {
+  flex: 1;
+  padding: 12px 16px;
+  border: 2px solid var(--encrypt-border);
+  border-radius: 8px;
+  font-size: 14px;
+  outline: none;
+  transition: all 0.2s ease;
+  background: white;
+}
+
+.encrypt-password-input:focus {
+  border-color: var(--encrypt-primary);
+  box-shadow: 0 0 0 3px rgba(79, 141, 253, 0.1);
+}
+
+.encrypt-password-input::placeholder {
+  color: #94a3b8;
+}
+
+.encrypt-unlock-btn {
+  padding: 12px 24px;
+  background: linear-gradient(135deg, var(--encrypt-primary), #3b82f6);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.encrypt-unlock-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(79, 141, 253, 0.3);
+}
+
+.encrypt-unlock-btn:active {
+  transform: translateY(0);
+}
+
+.encrypt-unlock-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.encrypt-unlock-btn.loading {
+  position: relative;
+  color: transparent;
+}
+
+.encrypt-unlock-btn.loading::after {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  top: 50%;
+  left: 50%;
+  margin-left: -8px;
+  margin-top: -8px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: white;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 错误消息 */
+.encrypt-error-msg {
+  margin-top: 16px;
+  padding: 8px 16px;
+  background: #fef2f2;
+  color: #dc2626;
+  font-size: 13px;
+  border-radius: 6px;
+  border: 1px solid #fecaca;
+}
+
+/* 解锁成功动画 */
+.encrypt-block.unlocking {
+  animation: unlockShake 0.5s ease;
+}
+
+@keyframes unlockShake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
+
+.encrypt-block.unlocked {
+  animation: unlockFade 0.3s ease forwards;
+}
+
+@keyframes unlockFade {
+  to {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+}
+
+/* 解锁后的内容容器 */
+.encrypt-content-revealed {
+  animation: revealContent 0.5s ease forwards;
+}
+
+@keyframes revealContent {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 暗色模式 */
+@media (prefers-color-scheme: dark) {
+  .encrypt-block {
+    --encrypt-bg: #1e293b;
+    --encrypt-text: #e2e8f0;
+    --encrypt-border: #334155;
+    --encrypt-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  }
+
+  .encrypt-password-input {
+    background: #0f172a;
+    color: #e2e8f0;
+    border-color: #334155;
+  }
+
+  .encrypt-password-input:focus {
+    border-color: var(--encrypt-primary);
+  }
+
+  .encrypt-hint {
+    color: #94a3b8;
+  }
+
+  .encrypt-error-msg {
+    background: #450a0a;
+    border-color: #7f1d1d;
+  }
+}
+
+/* 响应式设计 */
+@media (max-width: 480px) {
+  .encrypt-block {
+    padding: 24px 16px;
+    margin: 16px 0;
+  }
+
+  .encrypt-unlock-form {
+    flex-direction: column;
+  }
+
+  .encrypt-password-input,
+  .encrypt-unlock-btn {
+    width: 100%;
+  }
+
+  .encrypt-lock-icon svg {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+/* 付费类型样式 */
+.encrypt-block[data-type="paid"] .encrypt-type-label {
+  background: linear-gradient(135deg, #f59e0b, #ef4444);
+}
+
+.encrypt-block[data-type="paid"] .encrypt-unlock-form {
+  flex-direction: column;
+}
+
+.encrypt-price-display {
+  font-size: 24px;
+  font-weight: 700;
+  color: #f59e0b;
+  margin-bottom: 16px;
+}
+
+.encrypt-price-display::before {
+  content: '¥';
+  font-size: 16px;
+  margin-right: 2px;
+}
+
+.encrypt-pay-btn {
+  padding: 14px 32px;
+  background: linear-gradient(135deg, #f59e0b, #ef4444);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.encrypt-pay-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(245, 158, 11, 0.3);
+}
