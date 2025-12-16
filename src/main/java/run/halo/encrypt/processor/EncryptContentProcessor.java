@@ -1,7 +1,12 @@
 package run.halo.encrypt.processor;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
@@ -14,8 +19,12 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
+import run.halo.app.extension.ConfigMap;
+import run.halo.app.extension.ReactiveExtensionClient;
 import run.halo.app.plugin.ReactiveSettingFetcher;
 import run.halo.app.theme.ReactivePostContentHandler;
+import run.halo.encrypt.model.TotpPassword;
+import run.halo.encrypt.util.TotpUtils;
 
 /**
  * 文章内容处理器（后端验证版 + 安全功能）
@@ -46,12 +55,14 @@ public class EncryptContentProcessor implements ReactivePostContentHandler {
     private static boolean enableUnlockLog = true;
 
     // TOTP 配置
-    private static boolean totpEnabled = false;
-    private static String totpSecret = "";
-    private static String totpValidityPeriod = "DAY_1";
     private static String masterKey = "";
+    private static List<TotpPassword> totpPasswords = new ArrayList<>();
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().registerModule(new JavaTimeModule());
+    private static final String CONFIG_MAP_NAME = "plugin-encrypt-configMap";
+    private static final String TOTP_PASSWORDS_KEY = "totpPasswords";
 
     private final ReactiveSettingFetcher settingFetcher;
+    private final ReactiveExtensionClient extensionClient;
 
     // 匹配 [encrypt type="password" password="xxx"]内容[/encrypt]
     private static final Pattern ENCRYPT_PATTERN = Pattern.compile(
@@ -75,8 +86,71 @@ public class EncryptContentProcessor implements ReactivePostContentHandler {
                 .then(Mono.fromCallable(() -> {
                     String processedContent = processEncryptBlocks(content);
                     context.setContent(processedContent);
+
+                    // 服务端清理摘要，防止加密内容泄露
+                    cleanExcerpt(context);
+
                     return context;
                 }));
+    }
+
+    /**
+     * 清理摘要中的加密标签
+     * 防止 [encrypt]...[/encrypt] 内容在文章列表摘要中泄露
+     */
+    private void cleanExcerpt(PostContentContext context) {
+        try {
+            var post = context.getPost();
+            if (post == null || post.getSpec() == null) {
+                return;
+            }
+
+            var spec = post.getSpec();
+            var excerpt = spec.getExcerpt();
+
+            if (excerpt == null) {
+                return;
+            }
+
+            // 获取摘要内容
+            String excerptRaw = excerpt.getRaw();
+            if (excerptRaw == null || excerptRaw.isEmpty()) {
+                return;
+            }
+
+            // 检查是否包含加密标签
+            if (!excerptRaw.contains("[encrypt") && !excerptRaw.contains("[/encrypt]")) {
+                return;
+            }
+
+            // 清理加密标签
+            String cleaned = excerptRaw;
+
+            // 替换完整的 [encrypt]...[/encrypt] 块
+            cleaned = cleaned.replaceAll(
+                    "\\[encrypt[^\\]]*\\][\\s\\S]*?\\[/encrypt\\]",
+                    "🔒 [加密内容]");
+
+            // 替换被截断的开始标签
+            cleaned = cleaned.replaceAll(
+                    "\\[encrypt[^\\]]*\\]",
+                    "🔒 [加密内容]");
+
+            // 清理残留的结束标签
+            cleaned = cleaned.replaceAll("\\[/encrypt\\]", "");
+
+            // 清理密码属性（以防万一）
+            cleaned = cleaned.replaceAll(
+                    "password\\s*=\\s*[\"'][^\"']*[\"']",
+                    "");
+
+            // 设置清理后的摘要
+            excerpt.setRaw(cleaned);
+
+            log.debug("已清理文章摘要中的加密标签: {}", post.getMetadata().getName());
+        } catch (Exception e) {
+            log.warn("清理摘要失败: {}", e.getMessage());
+        }
     }
 
     /**
@@ -94,11 +168,34 @@ public class EncryptContentProcessor implements ReactivePostContentHandler {
                 .then(settingFetcher.get("totp"))
                 .doOnNext(totpSetting -> {
                     if (totpSetting != null) {
-                        totpEnabled = totpSetting.get("enableTotp").asBoolean(false);
-                        totpSecret = totpSetting.get("totpSecret").asText("");
-                        totpValidityPeriod = totpSetting.get("validityPeriod").asText("DAY_1");
                         masterKey = totpSetting.get("masterKey").asText("");
                     }
+                })
+                .then(loadTotpPasswords())
+                .then();
+    }
+
+    /**
+     * 从 ConfigMap 加载 TOTP 密码列表
+     */
+    private Mono<Void> loadTotpPasswords() {
+        return extensionClient.get(ConfigMap.class, CONFIG_MAP_NAME)
+                .doOnNext(configMap -> {
+                    try {
+                        String json = configMap.getData().getOrDefault(TOTP_PASSWORDS_KEY, "[]");
+                        totpPasswords = OBJECT_MAPPER.readValue(json,
+                                new TypeReference<List<TotpPassword>>() {
+                                });
+                        log.debug("加载了 {} 个 TOTP 密码", totpPasswords.size());
+                    } catch (Exception e) {
+                        log.warn("解析 TOTP 密码列表失败: {}", e.getMessage());
+                        totpPasswords = new ArrayList<>();
+                    }
+                })
+                .onErrorResume(e -> {
+                    log.debug("ConfigMap 不存在或加载失败");
+                    totpPasswords = new ArrayList<>();
+                    return Mono.empty();
                 })
                 .then();
     }
@@ -276,17 +373,22 @@ public class EncryptContentProcessor implements ReactivePostContentHandler {
         boolean passwordValid = false;
         String unlockMethod = "";
 
-        // 1. 尝试 TOTP 动态密码（6位纯数字）
-        if (totpEnabled && !totpSecret.isEmpty() && password.matches("\\d{6}")) {
-            try {
-                run.halo.encrypt.util.TotpUtils.ValidityPeriod period = run.halo.encrypt.util.TotpUtils.ValidityPeriod
-                        .valueOf(totpValidityPeriod);
-                if (run.halo.encrypt.util.TotpUtils.verifyCode(totpSecret, password, period)) {
-                    passwordValid = true;
-                    unlockMethod = "TOTP动态密码";
+        // 1. 尝试 TOTP 动态密码（6位纯数字）- 遍历所有启用的密码
+        if (password.matches("\\d{6}") && !totpPasswords.isEmpty()) {
+            for (TotpPassword totp : totpPasswords) {
+                if (!totp.isEnabled())
+                    continue;
+                try {
+                    if (TotpUtils.verifyCodeByCreationTime(
+                            totp.getSecret(), password,
+                            totp.getCreatedAt(), totp.getDurationDays())) {
+                        passwordValid = true;
+                        unlockMethod = "TOTP动态密码 (" + totp.getName() + ")";
+                        break;
+                    }
+                } catch (Exception e) {
+                    log.warn("TOTP 验证异常: {}", e.getMessage());
                 }
-            } catch (Exception e) {
-                log.warn("TOTP 验证异常: {}", e.getMessage());
             }
         }
 

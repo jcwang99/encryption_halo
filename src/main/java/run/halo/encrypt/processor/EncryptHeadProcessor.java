@@ -49,6 +49,24 @@ public class EncryptHeadProcessor implements TemplateHeadProcessor {
 
   private String getInlineCSS() {
     return """
+        /* 摘要保护 - 加密占位符样式 */
+        .encrypt-placeholder {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          padding: 2px 8px;
+          background: linear-gradient(135deg, #f0f4ff, #e8f0ff);
+          border: 1px solid #d0e0ff;
+          border-radius: 4px;
+          font-size: 0.9em;
+          color: #4a6fa5;
+        }
+        .encrypt-placeholder::before {
+          content: '🔒';
+        }
+        .excerpt-cleaned {
+          /* 标记已清理的摘要 */
+        }
         .encrypt-block {
           --encrypt-primary: #4F8DFD;
           --encrypt-bg: #f8fafc;

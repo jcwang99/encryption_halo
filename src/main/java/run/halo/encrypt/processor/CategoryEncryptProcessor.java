@@ -136,11 +136,15 @@ public class CategoryEncryptProcessor implements ReactivePostContentHandler {
                         content);
 
                 context.setContent(wrappedContent);
+
                 log.info("分类加密已应用到文章: {}, 分类slug: {}",
                         context.getPost().getMetadata().getName(),
                         configCategorySlug);
 
-                return Mono.just(context);
+                // 服务端保护摘要：分类加密时持久化替换摘要，防止内容泄露
+                final String finalHint = hint;
+                return protectExcerptForCategoryEncryption(context, finalHint)
+                        .thenReturn(context);
             }
         }
 
@@ -171,5 +175,62 @@ public class CategoryEncryptProcessor implements ReactivePostContentHandler {
                 .replace("'", "&#39;")
                 .replace("<", "&lt;")
                 .replace(">", "&gt;");
+    }
+
+    /**
+     * 保护摘要：分类加密时直接替换摘要为提示信息
+     * 防止原始内容在文章列表中泄露
+     * 使用 client.update() 持久化更改
+     */
+    private Mono<Void> protectExcerptForCategoryEncryption(PostContentContext context, String hint) {
+        var post = context.getPost();
+        if (post == null || post.getSpec() == null) {
+            return Mono.empty();
+        }
+
+        var spec = post.getSpec();
+        var excerpt = spec.getExcerpt();
+
+        if (excerpt == null) {
+            return Mono.empty();
+        }
+
+        String currentExcerpt = excerpt.getRaw();
+        String protectedExcerpt = "🔒 " + hint;
+
+        // 如果摘要已经被保护，跳过
+        if (currentExcerpt != null && currentExcerpt.startsWith("🔒")) {
+            log.debug("摘要已被保护，跳过: {}", post.getMetadata().getName());
+            return Mono.empty();
+        }
+
+        // 备份原始摘要到 annotation（以便取消加密时恢复）
+        var annotations = post.getMetadata().getAnnotations();
+        if (annotations == null) {
+            annotations = new java.util.HashMap<>();
+            post.getMetadata().setAnnotations(annotations);
+        }
+
+        // 只有当没有备份时才保存
+        if (!annotations.containsKey("encrypt.halo.run/original-excerpt")) {
+            if (currentExcerpt != null) {
+                annotations.put("encrypt.halo.run/original-excerpt", currentExcerpt);
+            }
+        }
+
+        // 设置保护后的摘要
+        excerpt.setRaw(protectedExcerpt);
+        excerpt.setAutoGenerate(false);
+
+        // 同时更新 status 中的摘要（如果存在）
+        if (post.getStatus() != null) {
+            post.getStatus().setExcerpt(protectedExcerpt);
+        }
+
+        // 持久化更改到数据库
+        return client.update(post)
+                .doOnSuccess(p -> log.info("已保护分类加密文章的摘要: {}", post.getMetadata().getName()))
+                .doOnError(e -> log.warn("保护摘要失败: {}", e.getMessage()))
+                .then();
     }
 }

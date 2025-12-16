@@ -257,4 +257,87 @@ public class TotpUtils {
             return "000000";
         }
     }
+
+    // ========== 新增：基于创建时间的方法 ==========
+
+    /**
+     * 获取基于创建时间的当前 TOTP 密码
+     * 
+     * @param secret       密钥
+     * @param createdAt    创建时间
+     * @param durationDays 周期天数
+     */
+    public static String getCodeByCreationTime(String secret, LocalDateTime createdAt, int durationDays) {
+        long counter = getCounterByCreationTime(createdAt, durationDays);
+        return generateCode(secret, counter);
+    }
+
+    /**
+     * 验证基于创建时间的 TOTP 密码
+     */
+    public static boolean verifyCodeByCreationTime(String secret, String inputCode,
+            LocalDateTime createdAt, int durationDays) {
+        if (secret == null || inputCode == null || inputCode.length() != CODE_DIGITS) {
+            return false;
+        }
+        if (!inputCode.matches("\\d{6}")) {
+            return false;
+        }
+
+        long currentCounter = getCounterByCreationTime(createdAt, durationDays);
+        String expectedCode = generateCode(secret, currentCounter);
+        return expectedCode.equals(inputCode);
+    }
+
+    /**
+     * 计算基于创建时间的周期编号
+     */
+    private static long getCounterByCreationTime(LocalDateTime createdAt, int durationDays) {
+        if (createdAt == null) {
+            return 0;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        long daysPassed = java.time.Duration.between(createdAt, now).toDays();
+        // 确保不会出现负数
+        if (daysPassed < 0) {
+            return 0;
+        }
+        return daysPassed / durationDays;
+    }
+
+    /**
+     * 获取基于创建时间的过期时间
+     */
+    public static LocalDateTime getExpirationTimeByCreation(LocalDateTime createdAt, int durationDays) {
+        if (createdAt == null) {
+            return LocalDateTime.now().plusDays(durationDays);
+        }
+        long period = getCounterByCreationTime(createdAt, durationDays);
+        return createdAt.plusDays((period + 1) * durationDays);
+    }
+
+    /**
+     * 获取基于创建时间的剩余时间描述
+     */
+    public static String getRemainingByCreation(LocalDateTime createdAt, int durationDays) {
+        LocalDateTime expiration = getExpirationTimeByCreation(createdAt, durationDays);
+        LocalDateTime now = LocalDateTime.now();
+
+        if (now.isAfter(expiration)) {
+            return "即将更换";
+        }
+
+        java.time.Duration remaining = java.time.Duration.between(now, expiration);
+        long days = remaining.toDays();
+        long hours = remaining.toHours() % 24;
+        long minutes = remaining.toMinutes() % 60;
+
+        if (days > 0) {
+            return days + "天" + hours + "小时";
+        } else if (hours > 0) {
+            return hours + "小时" + minutes + "分钟";
+        } else {
+            return minutes + "分钟";
+        }
+    }
 }

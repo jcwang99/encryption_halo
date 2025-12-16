@@ -1,92 +1,107 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from "vue";
-import { VButton, VSpace, Toast } from "@halo-dev/components";
+import { VButton, VSpace, Toast, Dialog } from "@halo-dev/components";
 import axios from "axios";
 
-interface TotpResponse {
-  enabled: boolean;
-  code: string | null;
-  expiresAt: string | null;
-  remaining: string | null;
-  periodDescription: string | null;
+interface PasswordInfo {
+  id: string;
+  name: string;
+  code: string;
+  durationDays: number;
+  remaining: string;
+  expiresAt: string;
+  createdAt: string;
+}
+
+interface ListResponse {
+  success: boolean;
+  passwords: PasswordInfo[];
   error: string | null;
 }
 
-interface GenerateResponse {
-  success: boolean;
-  message: string;
-  secret: string | null;
-}
-
-const totpData = ref<TotpResponse | null>(null);
+const passwords = ref<PasswordInfo[]>([]);
 const loading = ref(false);
+const showCreateModal = ref(false);
+const newPasswordName = ref("");
+const newPasswordDays = ref(7);
 const refreshInterval = ref<number | null>(null);
 
-// 获取当前 TOTP 密码
-async function fetchCurrentCode() {
+// 获取密码列表
+async function fetchPasswords() {
   try {
-    const response = await axios.get<TotpResponse>(
-      "/apis/encrypt.halo.run/v1alpha1/totp/current"
+    const response = await axios.get<ListResponse>(
+      "/apis/encrypt.halo.run/v1alpha1/totp/list"
     );
-    totpData.value = response.data;
+    if (response.data.success) {
+      passwords.value = response.data.passwords;
+    }
   } catch (error) {
-    console.error("获取 TOTP 密码失败", error);
-    totpData.value = {
-      enabled: false,
-      code: null,
-      expiresAt: null,
-      remaining: null,
-      periodDescription: null,
-      error: "获取失败，请检查网络连接",
-    };
+    console.error("获取密码列表失败", error);
   }
 }
 
-// 生成新密钥（自动保存到设置）
-async function generateSecret() {
+// 创建新密码
+async function createPassword() {
+  if (!newPasswordName.value.trim()) {
+    Toast.warning("请输入密码名称");
+    return;
+  }
+  
   loading.value = true;
   try {
-    const response = await axios.post<GenerateResponse>(
-      "/apis/encrypt.halo.run/v1alpha1/totp/generate"
+    const response = await axios.post(
+      "/apis/encrypt.halo.run/v1alpha1/totp/create",
+      {
+        name: newPasswordName.value,
+        durationDays: newPasswordDays.value
+      }
     );
-    
-    if (response.data.success) {
-      Toast.success(response.data.message);
-      // 刷新获取最新状态
-      setTimeout(fetchCurrentCode, 500);
-    } else {
-      Toast.error(response.data.message);
-    }
+    Toast.success("密码创建成功");
+    showCreateModal.value = false;
+    newPasswordName.value = "";
+    newPasswordDays.value = 7;
+    await fetchPasswords();
   } catch (error) {
-    Toast.error("生成密钥失败，请稍后重试");
+    Toast.error("创建失败，请稍后重试");
   } finally {
     loading.value = false;
   }
 }
 
+// 删除密码
+async function deletePassword(id: string, name: string) {
+  if (!confirm(`确定要删除密码「${name}」吗？`)) {
+    return;
+  }
+  
+  try {
+    await axios.delete(`/apis/encrypt.halo.run/v1alpha1/totp/${id}`);
+    Toast.success("删除成功");
+    await fetchPasswords();
+  } catch (error) {
+    Toast.error("删除失败");
+  }
+}
+
 // 复制密码
-async function copyCode() {
-  if (totpData.value?.code) {
-    try {
-      await navigator.clipboard.writeText(totpData.value.code);
-      Toast.success("密码已复制到剪贴板");
-    } catch {
-      // 备用复制方法
-      const input = document.createElement('input');
-      input.value = totpData.value.code;
-      document.body.appendChild(input);
-      input.select();
-      document.execCommand('copy');
-      document.body.removeChild(input);
-      Toast.success("密码已复制");
-    }
+async function copyCode(code: string) {
+  try {
+    await navigator.clipboard.writeText(code);
+    Toast.success("密码已复制到剪贴板");
+  } catch {
+    const input = document.createElement('input');
+    input.value = code;
+    document.body.appendChild(input);
+    input.select();
+    document.execCommand('copy');
+    document.body.removeChild(input);
+    Toast.success("密码已复制");
   }
 }
 
 onMounted(() => {
-  fetchCurrentCode();
-  // 每10秒刷新一次
-  refreshInterval.value = window.setInterval(fetchCurrentCode, 10000);
+  fetchPasswords();
+  refreshInterval.value = window.setInterval(fetchPasswords, 30000);
 });
 
 onUnmounted(() => {
@@ -97,175 +112,317 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="totp-display-container">
-    <h3 class="section-title">🔐 动态密码管理</h3>
-
-    <!-- 未启用或无密钥状态 -->
-    <div v-if="!totpData?.enabled || totpData?.error" class="totp-disabled">
-      <div class="disabled-icon">🔒</div>
-      <p class="disabled-text">
-        {{ totpData?.error || "动态密码未启用" }}
-      </p>
-      <p class="disabled-hint">
-        点击下方按钮一键生成密钥并启用动态密码
-      </p>
-      <VButton type="primary" @click="generateSecret" :loading="loading">
-        🔑 生成密钥并启用
+  <div class="totp-container">
+    <div class="header">
+      <h2>🔐 动态密码管理</h2>
+      <VButton type="primary" @click="showCreateModal = true">
+        ➕ 添加新密码
       </VButton>
     </div>
 
-    <!-- 已启用状态 -->
-    <div v-else class="totp-enabled">
-      <div class="period-label">
-        {{ totpData.periodDescription }}
+    <!-- 密码列表 -->
+    <div v-if="passwords.length > 0" class="password-list">
+      <div v-for="pwd in passwords" :key="pwd.id" class="password-card">
+        <div class="card-header">
+          <span class="password-name">{{ pwd.name }}</span>
+          <span class="duration-badge">{{ pwd.durationDays }}天有效</span>
+        </div>
+        
+        <div class="code-section">
+          <span class="code">{{ pwd.code }}</span>
+          <button class="copy-btn" @click="copyCode(pwd.code)" title="复制">
+            📋
+          </button>
+        </div>
+        
+        <div class="meta-info">
+          <span>⏱️ 剩余: {{ pwd.remaining }}</span>
+        </div>
+        
+        <div class="card-actions">
+          <VButton size="sm" type="danger" @click="deletePassword(pwd.id, pwd.name)">
+            删除
+          </VButton>
+        </div>
       </div>
+    </div>
 
-      <div class="code-display">
-        <span class="code-text">{{ totpData.code }}</span>
-        <button class="copy-btn" @click="copyCode" title="复制密码">
-          📋
-        </button>
-      </div>
+    <!-- 空状态 -->
+    <div v-else class="empty-state">
+      <div class="empty-icon">🔑</div>
+      <p>还没有动态密码</p>
+      <p class="hint">点击上方按钮创建第一个动态密码</p>
+    </div>
 
-      <div class="expiry-info">
-        ⏱️ 剩余时间: {{ totpData.remaining }}
+    <!-- 创建密码弹窗 -->
+    <div v-if="showCreateModal" class="modal-overlay" @click.self="showCreateModal = false">
+      <div class="modal-content">
+        <h3>创建新密码</h3>
+        
+        <div class="form-group">
+          <label>密码名称</label>
+          <input v-model="newPasswordName" placeholder="如: VIP周密码" />
+        </div>
+        
+        <div class="form-group">
+          <label>有效期（天）</label>
+          <select v-model="newPasswordDays">
+            <option :value="1">1 天</option>
+            <option :value="7">7 天（一周）</option>
+            <option :value="30">30 天（一月）</option>
+            <option :value="90">90 天（一季度）</option>
+            <option :value="365">365 天（一年）</option>
+          </select>
+        </div>
+        
+        <div class="modal-actions">
+          <VButton @click="showCreateModal = false">取消</VButton>
+          <VButton type="primary" @click="createPassword" :loading="loading">
+            创建
+          </VButton>
+        </div>
       </div>
+    </div>
 
-      <div class="action-buttons">
-        <VButton size="sm" @click="fetchCurrentCode">🔄 刷新</VButton>
-        <VButton size="sm" type="danger" @click="generateSecret" :loading="loading">
-          🔑 重新生成密钥
-        </VButton>
-      </div>
-
-      <div class="usage-hint">
-        <p>💡 使用提示:</p>
-        <ul>
-          <li>将上方密码告知需要访问加密内容的用户</li>
-          <li>密码会自动在到期后更换</li>
-          <li>还可以设置「万能密钥」作为备用固定密码</li>
-        </ul>
-      </div>
+    <!-- 使用说明 -->
+    <div class="usage-info">
+      <h4>💡 使用说明</h4>
+      <ul>
+        <li>每个密码从<strong>创建时刻</strong>开始计算有效期</li>
+        <li>到期后密码会自动更换，用户需使用新密码</li>
+        <li>可创建多个不同用途的密码（如 VIP 周密码、临时密码等）</li>
+        <li>任意一个有效密码都可以解锁加密内容</li>
+      </ul>
     </div>
   </div>
 </template>
 
 <style scoped>
-.totp-display-container {
-  margin: 16px 0;
+.totp-container {
   padding: 24px;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.header h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.password-list {
+  display: grid;
+  gap: 16px;
+}
+
+.password-card {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   border-radius: 12px;
+  padding: 20px;
   color: white;
 }
 
-.section-title {
-  margin: 0 0 20px 0;
-  font-size: 18px;
-  font-weight: 600;
-  text-align: center;
-}
-
-.totp-disabled {
-  text-align: center;
-  padding: 24px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-}
-
-.disabled-icon {
-  font-size: 48px;
-  margin-bottom: 12px;
-}
-
-.disabled-text {
-  font-size: 16px;
-  margin: 8px 0;
-  font-weight: 500;
-}
-
-.disabled-hint {
-  font-size: 14px;
-  opacity: 0.9;
-  margin-bottom: 20px;
-}
-
-.totp-enabled {
-  text-align: center;
-}
-
-.period-label {
-  font-size: 14px;
-  opacity: 0.9;
-  margin-bottom: 12px;
-  font-weight: 500;
-}
-
-.code-display {
-  display: inline-flex;
+.card-header {
+  display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 12px;
-  background: rgba(255, 255, 255, 0.2);
-  padding: 20px 32px;
-  border-radius: 12px;
   margin-bottom: 16px;
 }
 
-.code-text {
-  font-size: 48px;
+.password-name {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.duration-badge {
+  background: rgba(255, 255, 255, 0.25);
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+}
+
+.code-section {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.15);
+  padding: 16px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+
+.code {
+  font-size: 36px;
   font-family: "Courier New", monospace;
   font-weight: bold;
-  letter-spacing: 8px;
+  letter-spacing: 6px;
 }
 
 .copy-btn {
   background: rgba(255, 255, 255, 0.3);
   border: none;
-  border-radius: 8px;
-  padding: 12px 16px;
-  font-size: 24px;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 20px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: 0.2s;
 }
 
 .copy-btn:hover {
   background: rgba(255, 255, 255, 0.5);
-  transform: scale(1.05);
 }
 
-.expiry-info {
-  font-size: 15px;
-  opacity: 0.95;
-  margin-bottom: 20px;
+.meta-info {
+  text-align: center;
+  margin-bottom: 12px;
+  font-size: 14px;
+  opacity: 0.9;
 }
 
-.action-buttons {
+.card-actions {
   display: flex;
-  gap: 12px;
+  justify-content: flex-end;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  background: #f8fafc;
+  border-radius: 12px;
+  color: #64748b;
+}
+
+.empty-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.empty-state p {
+  margin: 8px 0;
+}
+
+.hint {
+  font-size: 14px;
+  opacity: 0.8;
+}
+
+/* 弹窗 */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
   justify-content: center;
-  margin-bottom: 20px;
+  z-index: 1000;
 }
 
-.usage-hint {
-  text-align: left;
-  background: rgba(255, 255, 255, 0.1);
-  padding: 16px;
-  border-radius: 8px;
-  font-size: 13px;
+.modal-content {
+  background: white;
+  padding: 24px;
+  border-radius: 12px;
+  width: 400px;
+  max-width: 90vw;
 }
 
-.usage-hint p {
-  margin: 0 0 8px 0;
-  font-weight: 600;
+.modal-content h3 {
+  margin: 0 0 20px 0;
 }
 
-.usage-hint ul {
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 500;
+  color: #374151;
+}
+
+.form-group input,
+.form-group select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+/* 使用说明 */
+.usage-info {
+  margin-top: 32px;
+  padding: 20px;
+  background: #f1f5f9;
+  border-radius: 12px;
+}
+
+.usage-info h4 {
+  margin: 0 0 12px 0;
+  color: #334155;
+}
+
+.usage-info ul {
   margin: 0;
   padding-left: 20px;
+  color: #64748b;
+  font-size: 14px;
 }
 
-.usage-hint li {
-  margin: 4px 0;
-  opacity: 0.9;
+.usage-info li {
+  margin: 6px 0;
+}
+
+/* 深色模式 */
+@media (prefers-color-scheme: dark) {
+  .empty-state {
+    background: #1e293b;
+    color: #94a3b8;
+  }
+  
+  .usage-info {
+    background: #1e293b;
+  }
+  
+  .usage-info h4 {
+    color: #e2e8f0;
+  }
+  
+  .usage-info ul {
+    color: #94a3b8;
+  }
+  
+  .modal-content {
+    background: #1e293b;
+    color: #e2e8f0;
+  }
+  
+  .form-group label {
+    color: #e2e8f0;
+  }
+  
+  .form-group input,
+  .form-group select {
+    background: #0f172a;
+    border-color: #334155;
+    color: #e2e8f0;
+  }
 }
 </style>

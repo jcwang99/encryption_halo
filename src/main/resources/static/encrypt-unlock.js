@@ -302,4 +302,91 @@
         subtree: true
     });
 
+    // ========== 摘要保护功能 ==========
+
+    /**
+     * 清理摘要中的加密标签，防止内容泄露
+     */
+    function cleanExcerpts() {
+        // 摘要选择器（适配常见主题）
+        const excerptSelectors = [
+            '.post-excerpt', '.entry-summary', '.excerpt',
+            '.post-summary', '.article-excerpt', '.content-excerpt',
+            '[class*="excerpt"]', '[class*="summary"]:not(.encrypt-block)'
+        ];
+
+        // 匹配模式
+        const encryptFullPattern = /\[encrypt[^\]]*\][\s\S]*?\[\/encrypt\]/gi;
+        const encryptStartPattern = /\[encrypt[^\]]*\]/gi;
+        const encryptEndPattern = /\[\/encrypt\]/gi;
+
+        // 匹配密码属性（防止泄露）
+        const passwordAttrPattern = /password\s*=\s*["'][^"']*["']/gi;
+
+        excerptSelectors.forEach(selector => {
+            try {
+                document.querySelectorAll(selector).forEach(el => {
+                    // 跳过加密区块本身
+                    if (el.closest('.encrypt-block') || el.classList.contains('encrypt-block')) {
+                        return;
+                    }
+
+                    let html = el.innerHTML;
+                    let text = el.textContent || '';
+                    let changed = false;
+
+                    // 检查是否包含加密标签
+                    if (text.includes('[encrypt') || text.includes('[/encrypt]')) {
+                        // 替换完整的加密块
+                        html = html.replace(encryptFullPattern, '<span class="encrypt-placeholder">🔒 [加密内容]</span>');
+
+                        // 替换被截断的开始标签
+                        html = html.replace(encryptStartPattern, '<span class="encrypt-placeholder">🔒 [加密内容]</span>');
+
+                        // 清理残留的结束标签
+                        html = html.replace(encryptEndPattern, '');
+
+                        // 清理密码属性（以防万一）
+                        html = html.replace(passwordAttrPattern, '');
+
+                        changed = true;
+                    }
+
+                    if (changed) {
+                        el.innerHTML = html;
+                        console.log('[Encrypt Plugin] 已清理摘要中的加密标签');
+                    }
+                });
+            } catch (e) {
+                // 忽略选择器错误
+            }
+        });
+    }
+
+    // 初始化时清理
+    cleanExcerpts();
+
+    // 监听动态内容加载
+    const excerptObserver = new MutationObserver(function (mutations) {
+        let shouldClean = false;
+        mutations.forEach(mutation => {
+            mutation.addedNodes.forEach(node => {
+                if (node.nodeType === 1) {
+                    const text = node.textContent || '';
+                    if (text.includes('[encrypt') || text.includes('[/encrypt]')) {
+                        shouldClean = true;
+                    }
+                }
+            });
+        });
+        if (shouldClean) {
+            cleanExcerpts();
+        }
+    });
+
+    excerptObserver.observe(document.body, {
+        childList: true,
+        subtree: true
+    });
+
 })();

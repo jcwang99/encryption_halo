@@ -6,6 +6,7 @@ metadata:
   name: halo-plugin-encrypt
 spec:
   enabled: true
+  version: "1.3.0"
   requires: ">=2.21.0"
   author:
     name: Developer
