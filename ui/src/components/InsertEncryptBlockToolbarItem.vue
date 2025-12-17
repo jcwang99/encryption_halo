@@ -41,9 +41,17 @@ const generatedBlockId = ref("");
 
 const isPasswordValid = computed(() => {
   if (encryptType.value !== "password") return true;
-  // 密码可以为空（使用 TOTP 动态密码）
-  // 如果输入了密码，则必须 >= 4 位且两次一致
-  if (!password.value && !confirmPassword.value) return true; // 允许不设密码
+  
+  // 如果启用了 TOTP 且已生成，则密码可选
+  if (enableBlockTotp.value && blockTotpGenerated.value) {
+    // 如果输入了密码，仍需验证格式
+    if (password.value || confirmPassword.value) {
+      return password.value.length >= 4 && password.value === confirmPassword.value;
+    }
+    return true;
+  }
+  
+  // 否则必须设置密码
   return password.value.length >= 4 && password.value === confirmPassword.value;
 });
 
@@ -153,6 +161,12 @@ function generateMetaComment(): string {
   if (expiresDate) {
     meta += `expires="${expiresDate}"\n`;
   }
+  
+  // 添加 TOTP ID
+  if (enableBlockTotp.value && generatedBlockId.value && blockTotpGenerated.value) {
+    meta += `totp-id="${generatedBlockId.value}"\n`;
+  }
+  
   meta += `-->\n\n`;
   return meta;
 }
@@ -217,23 +231,17 @@ async function generateBlockTotp() {
     console.error('获取文章标题失败:', error);
   }
   
-  // 计算区块序号（当前文章中已有多少个区块TOTP）
-  let blockNumber = 1;
-  try {
-    const listResponse = await fetch('/apis/api.encrypt.halo.run/v1alpha1/block-totp/list');
-    if (listResponse.ok) {
-      const blocks = await listResponse.json();
-      // 过滤出同一文章的区块（通过label中的文章标题匹配）
-      const sameArticleBlocks = blocks.filter((b: any) => 
-        b.label && b.label.includes(articleTitle)
-      );
-      blockNumber = sameArticleBlocks.length + 1;
-    }
-  } catch (error) {
-    console.warn('获取区块列表失败', error);
+  // 计算区块序号
+  let labelSuffix = "";
+  if (encryptMode.value === 'full') {
+    labelSuffix = "全文加密";
+  } else {
+    // 简单地通过DOM查找当前页面已有的加密块数量
+    const blockNumber = (document.querySelectorAll('[data-type="encrypt-block"]').length || 0) + 1;
+    labelSuffix = `区块${blockNumber}`;
   }
   
-  const label = `${articleTitle} - 区块${blockNumber}`;
+  const label = `${articleTitle} - ${labelSuffix}`;
   
   try {
     const response = await fetch('/apis/api.encrypt.halo.run/v1alpha1/block-totp/generate', {
@@ -430,6 +438,83 @@ function escapeAttr(str: string): string {
             </div>
             <p class="form-hint" v-if="enableBlockTotp">💡 此区块会有独立的动态密码，不使用全局动态密码</p>
           </div>
+        </template>
+
+        <!-- 全文加密模式 -->
+        <template v-if="encryptMode === 'full'">
+          <div class="form-group">
+            <label class="form-label">访问密码</label>
+            <input
+              type="password"
+              v-model="password"
+              class="form-input"
+              placeholder="留空则仅使用动态密码/万能密钥"
+            />
+          </div>
+          
+          <div class="form-group">
+             <div class="form-checkbox">
+               <input type="checkbox" id="enable-full-totp" v-model="enableBlockTotp" />
+               <label for="enable-full-totp">启用独立动态密码</label>
+             </div>
+             <div v-if="enableBlockTotp" class="totp-settings">
+               <div class="totp-duration">
+                 <label>有效期</label>
+                 <select v-model="blockTotpDuration">
+                   <option value="1">1天</option>
+                   <option value="7">7天</option>
+                   <option value="30">30天</option>
+                   <option value="90">90天</option>
+                 </select>
+               </div>
+               <VButton 
+                 type="secondary" 
+                 size="sm"
+                 @click="generateBlockTotp" 
+                 :loading="isGeneratingBlockTotp"
+                 :disabled="blockTotpGenerated"
+               >
+                 {{ blockTotpGenerated ? '✅ 已生成' : '生成密码' }}
+               </VButton>
+             </div>
+             <p class="form-hint" v-if="enableBlockTotp">💡 此文章会有独立的动态密码，不使用全局动态密码</p>
+           </div>
+
+          <div class="form-group">
+            <label class="form-label">提示信息</label>
+            <textarea
+              v-model="hint"
+              class="form-input"
+              rows="2"
+              placeholder="请输入提示信息（可选）"
+            ></textarea>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">过期时间（可选）</label>
+            <div class="expires-settings">
+              <select v-model="expiresOption" class="expires-select">
+                <option value="">不过期</option>
+                <option value="7">7天后</option>
+                <option value="30">30天后</option>
+                <option value="custom">自定义</option>
+              </select>
+              
+              <input 
+                v-if="expiresOption === 'custom'"
+                type="date" 
+                v-model="customExpiresDate"
+                class="form-input"
+              />
+            </div>
+            <p class="form-hint">
+              ⏰ 到期后内容自动变为公开，无需密码
+            </p>
+          </div>
+
+          <p class="form-hint">
+            全文加密将在文章开头插入特殊标记，发布后整篇文章都需要密码才能访问。
+          </p>
         </template>
 
         <!-- 付费设置 -->

@@ -42,7 +42,7 @@ public class ArticleEncryptProcessor implements ReactivePostContentHandler {
 
     // 属性解析 - 支持跨行
     private static final Pattern ATTR_PATTERN = Pattern.compile(
-            "(\\w+)\\s*=\\s*\"([^\"]*?)\"",
+            "([\\w-]+)\\s*=\\s*\"([^\"]*?)\"",
             Pattern.DOTALL);
 
     @Override
@@ -75,7 +75,7 @@ public class ArticleEncryptProcessor implements ReactivePostContentHandler {
         String type = annotations.getOrDefault(ANNOTATION_TYPE, "password");
 
         // 将整篇文章内容包装在 [encrypt] 标签中
-        String wrappedContent = wrapContent(content, password, hint, "text", type);
+        String wrappedContent = wrapContent(content, password, hint, "text", type, null, null);
         context.setContent(wrappedContent);
 
         log.info("全文加密已应用到文章（注解方式）: {}", context.getPost().getMetadata().getName());
@@ -103,17 +103,19 @@ public class ArticleEncryptProcessor implements ReactivePostContentHandler {
         String hint = extractAttribute(attributesBlock, "hint", "");
         String hintType = extractAttribute(attributesBlock, "hintType", "text");
         String type = "password"; // 目前只支持密码模式
+        String expires = extractAttribute(attributesBlock, "expires", null);
+        String totpId = extractAttribute(attributesBlock, "totp-id", null);
 
-        if (password.isEmpty()) {
-            log.warn("全文加密注释缺少密码");
+        if (password.isEmpty() && (totpId == null || totpId.isEmpty())) {
+            log.warn("全文加密注释缺少密码/TOTP ID");
             return Mono.just(context);
         }
 
         // 移除注释标记，获取干净的内容
         String cleanContent = matcher.replaceAll("").trim();
 
-        // 包装整个内容
-        String wrappedContent = wrapContent(cleanContent, password, hint, hintType, type);
+        // 将整篇文章内容包装在 [encrypt] 标签中
+        String wrappedContent = wrapContent(cleanContent, password, hint, hintType, type, expires, totpId);
         context.setContent(wrappedContent);
 
         log.info("全文加密已应用到文章（注释方式）: {}",
@@ -139,7 +141,7 @@ public class ArticleEncryptProcessor implements ReactivePostContentHandler {
      * 包装内容为加密区块
      */
     private String wrapContent(String content, String password, String hint,
-            String hintType, String type) {
+            String hintType, String type, String expires, String totpId) {
         StringBuilder tag = new StringBuilder();
         tag.append("[encrypt type=\"").append(escapeAttr(type)).append("\"");
         tag.append(" password=\"").append(escapeAttr(password)).append("\"");
@@ -147,6 +149,14 @@ public class ArticleEncryptProcessor implements ReactivePostContentHandler {
         if (hint != null && !hint.isEmpty()) {
             tag.append(" hint=\"").append(escapeAttr(hint)).append("\"");
             tag.append(" hint-type=\"").append(escapeAttr(hintType)).append("\"");
+        }
+
+        if (expires != null && !expires.isEmpty()) {
+            tag.append(" expires=\"").append(escapeAttr(expires)).append("\"");
+        }
+
+        if (totpId != null && !totpId.isEmpty()) {
+            tag.append(" totp-id=\"").append(escapeAttr(totpId)).append("\"");
         }
 
         tag.append("]");
