@@ -32,6 +32,13 @@ const contentToEncrypt = ref("");
 const expiresOption = ref<"" | "7" | "30" | "90" | "custom">(""); // 过期选项
 const customExpiresDate = ref(""); // 自定义过期日期
 
+// 区块级 TOTP 状态
+const enableBlockTotp = ref(false);
+const blockTotpDuration = ref("7");
+const isGeneratingBlockTotp = ref(false);
+const blockTotpGenerated = ref(false);
+const generatedBlockId = ref("");
+
 const isPasswordValid = computed(() => {
   if (encryptType.value !== "password") return true;
   // 密码可以为空（使用 TOTP 动态密码）
@@ -97,6 +104,14 @@ function resetForm() {
   hintType.value = "text";
   price.value = "";
   contentToEncrypt.value = "";
+  expiresOption.value = "";
+  customExpiresDate.value = "";
+  // 重置区块 TOTP 状态
+  enableBlockTotp.value = false;
+  blockTotpDuration.value = "7";
+  isGeneratingBlockTotp.value = false;
+  blockTotpGenerated.value = false;
+  generatedBlockId.value = "";
 }
 
 function insertEncryptBlock() {
@@ -153,6 +168,106 @@ function getExpiresDate(): string {
   return date.toISOString().split('T')[0]; // YYYY-MM-DD
 }
 
+// 生成区块级 TOTP
+async function generateBlockTotp() {
+  // 检查文章是否已保存
+  const urlParams = new URLSearchParams(window.location.search);
+  const postName = urlParams.get('name');
+  
+  if (!postName) {
+    Toast.warning('请先保存文章后再生成区块动态密码');
+    return;
+  }
+  
+  isGeneratingBlockTotp.value = true;
+  generatedBlockId.value = `totp-${Date.now().toString(36)}`;
+  
+  // 尝试获取文章标题
+  let articleTitle = "未命名文章";
+  try {
+    // 方法1: 从URL参数获取文章名称
+    const urlParams = new URLSearchParams(window.location.search);
+    const postName = urlParams.get('name');
+    
+    console.log('获取文章标题 - postName:', postName);
+    
+    if (postName) {
+      // 尝试从Halo API获取文章信息
+      const response = await fetch(`/apis/content.halo.run/v1alpha1/posts/${postName}`);
+      console.log('API响应状态:', response.status);
+      
+      if (response.ok) {
+        const postData = await response.json();
+        console.log('文章数据:', postData);
+        articleTitle = postData.spec?.title || articleTitle;
+        console.log('提取的文章标题:', articleTitle);
+      }
+    }
+    
+    // 方法2: 如果仍然是默认值，尝试从editor中获取
+    if (articleTitle === "未命名文章" && props.editor) {
+      // 尝试从编辑器的view中获取文章标题
+      const doc = props.editor.state.doc;
+      if (doc && doc.content) {
+        // 简单地使用时间戳作为标识
+        articleTitle = `文章_${new Date().toLocaleDateString()}`;
+      }
+    }
+  } catch (error) {
+    console.error('获取文章标题失败:', error);
+  }
+  
+  // 计算区块序号（当前文章中已有多少个区块TOTP）
+  let blockNumber = 1;
+  try {
+    const listResponse = await fetch('/apis/api.encrypt.halo.run/v1alpha1/block-totp/list');
+    if (listResponse.ok) {
+      const blocks = await listResponse.json();
+      // 过滤出同一文章的区块（通过label中的文章标题匹配）
+      const sameArticleBlocks = blocks.filter((b: any) => 
+        b.label && b.label.includes(articleTitle)
+      );
+      blockNumber = sameArticleBlocks.length + 1;
+    }
+  } catch (error) {
+    console.warn('获取区块列表失败', error);
+  }
+  
+  const label = `${articleTitle} - 区块${blockNumber}`;
+  
+  try {
+    const response = await fetch('/apis/api.encrypt.halo.run/v1alpha1/block-totp/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        blockId: generatedBlockId.value,
+        durationDays: parseInt(blockTotpDuration.value),
+        label: label
+      }),
+    });
+    
+    if (!response.ok) {
+      throw new Error('生成失败');
+    }
+    
+    const result = await response.json();
+    
+    if (result.success) {
+      blockTotpGenerated.value = true;
+      Toast.success(`区块动态密码已生成 (${result.currentCode})，有效期 ${blockTotpDuration.value} 天`);
+    } else {
+      throw new Error(result.error || '生成失败');
+    }
+  } catch (error: any) {
+    Toast.error(`生成失败: ${error.message}`);
+    console.error('generateBlockTotp error:', error);
+  } finally {
+    isGeneratingBlockTotp.value = false;
+  }
+}
+
 // 部分加密：插入 [encrypt] 标签
 function insertPartialEncryption() {
   const blockId = `block-${Date.now().toString(36)}`;
@@ -164,11 +279,16 @@ function insertPartialEncryption() {
 
   const expiresDate = getExpiresDate();
   const expiresAttr = expiresDate ? ` expires="${expiresDate}"` : "";
+  
+  // 区块 TOTP 属性
+  const totpIdAttr = (enableBlockTotp.value && blockTotpGenerated.value && generatedBlockId.value)
+    ? ` totp-id="${generatedBlockId.value}"`
+    : "";
 
   if (encryptType.value === "password") {
-    encryptTag = `[encrypt type="password" password="${escapeAttr(password.value)}" id="${blockId}"${hintAttr}${expiresAttr}]\n${contentToEncrypt.value}\n[/encrypt]`;
+    encryptTag = `[encrypt type="password" password="${escapeAttr(password.value)}" id="${blockId}"${hintAttr}${expiresAttr}${totpIdAttr}]\n${contentToEncrypt.value}\n[/encrypt]`;
   } else {
-    encryptTag = `[encrypt type="paid" price="${price.value}" id="${blockId}"${hintAttr}${expiresAttr}]\n${contentToEncrypt.value}\n[/encrypt]`;
+    encryptTag = `[encrypt type="paid" price="${price.value}" id="${blockId}"${hintAttr}${expiresAttr}${totpIdAttr}]\n${contentToEncrypt.value}\n[/encrypt]`;
   }
 
   // 如果有选中文本，替换它；否则在光标处插入
@@ -280,6 +400,35 @@ function escapeAttr(str: string): string {
             <p v-if="confirmPassword && password !== confirmPassword" class="form-error">
               两次输入的密码不一致
             </p>
+          </div>
+          
+          <!-- 区块级动态密码（仅部分加密模式） -->
+          <div class="form-group" v-if="encryptMode === 'partial'">
+            <div class="form-checkbox">
+              <input type="checkbox" id="enable-block-totp" v-model="enableBlockTotp" />
+              <label for="enable-block-totp">启用独立动态密码</label>
+            </div>
+            <div v-if="enableBlockTotp" class="totp-settings">
+              <div class="totp-duration">
+                <label>有效期</label>
+                <select v-model="blockTotpDuration">
+                  <option value="1">1天</option>
+                  <option value="7">7天</option>
+                  <option value="30">30天</option>
+                  <option value="90">90天</option>
+                </select>
+              </div>
+              <VButton 
+                type="secondary" 
+                size="sm"
+                @click="generateBlockTotp" 
+                :loading="isGeneratingBlockTotp"
+                :disabled="blockTotpGenerated"
+              >
+                {{ blockTotpGenerated ? '✅ 已生成' : '生成密码' }}
+              </VButton>
+            </div>
+            <p class="form-hint" v-if="enableBlockTotp">💡 此区块会有独立的动态密码，不使用全局动态密码</p>
           </div>
         </template>
 
@@ -665,5 +814,53 @@ function escapeAttr(str: string): string {
 
 .expires-date {
   flex: 1;
+}
+
+/* 区块级 TOTP */
+.totp-settings {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.totp-duration {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.totp-duration label {
+  font-size: 14px;
+  color: #4b5563;
+}
+
+.totp-duration select {
+  padding: 6px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+  background: white;
+  cursor: pointer;
+}
+
+.form-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.form-checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.form-checkbox label {
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
 }
 </style>

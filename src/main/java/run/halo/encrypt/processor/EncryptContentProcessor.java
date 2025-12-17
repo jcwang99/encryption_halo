@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -61,6 +62,10 @@ public class EncryptContentProcessor implements ReactivePostContentHandler {
     private static final String CONFIG_MAP_NAME = "plugin-encrypt-configMap";
     private static final String TOTP_PASSWORDS_KEY = "totpPasswords";
 
+    // 区块 TOTP 配置缓存
+    private static final String BLOCK_TOTP_CONFIG_MAP = "encrypt-block-totp";
+    private static final Map<String, BlockTotpConfig> BLOCK_TOTP_CACHE = new ConcurrentHashMap<>();
+
     private final ReactiveSettingFetcher settingFetcher;
     private final ReactiveExtensionClient extensionClient;
 
@@ -69,9 +74,9 @@ public class EncryptContentProcessor implements ReactivePostContentHandler {
             "\\[encrypt\\s+([^\\]]+)\\](.*?)\\[/encrypt\\]",
             Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
 
-    // 匹配属性
+    // 匹配属性（支持连字符，如 totp-id）
     private static final Pattern ATTR_PATTERN = Pattern.compile(
-            "(\\w+)\\s*=\\s*[\"']([^\"']*)[\"']");
+            "([\\w-]+)\\s*=\\s*[\"']([^\"']*)[\"']");
 
     @Override
     public Mono<PostContentContext> handle(PostContentContext context) {
@@ -81,8 +86,9 @@ public class EncryptContentProcessor implements ReactivePostContentHandler {
             return Mono.just(context);
         }
 
-        // 加载安全配置
+        // 加载安全配置和区块 TOTP 缓存
         return loadSecuritySettings()
+                .then(loadBlockTotpCache())
                 .then(Mono.fromCallable(() -> {
                     String processedContent = processEncryptBlocks(content);
                     context.setContent(processedContent);
@@ -200,6 +206,42 @@ public class EncryptContentProcessor implements ReactivePostContentHandler {
                 .then();
     }
 
+    /**
+     * 从 ConfigMap 加载区块 TOTP 配置到缓存
+     */
+    private Mono<Void> loadBlockTotpCache() {
+        return extensionClient.fetch(ConfigMap.class, BLOCK_TOTP_CONFIG_MAP)
+                .doOnNext(configMap -> {
+                    try {
+                        Map<String, String> data = configMap.getData();
+                        if (data == null) {
+                            BLOCK_TOTP_CACHE.clear();
+                            return;
+                        }
+                        String json = data.get("blocks");
+                        if (json == null || json.isEmpty()) {
+                            BLOCK_TOTP_CACHE.clear();
+                            return;
+                        }
+                        Map<String, BlockTotpConfig> blocks = OBJECT_MAPPER.readValue(json,
+                                new TypeReference<Map<String, BlockTotpConfig>>() {
+                                });
+                        BLOCK_TOTP_CACHE.clear();
+                        BLOCK_TOTP_CACHE.putAll(blocks);
+                        log.debug("加载了 {} 个区块 TOTP 配置", blocks.size());
+                    } catch (Exception e) {
+                        log.warn("解析区块 TOTP 配置失败: {}", e.getMessage());
+                        BLOCK_TOTP_CACHE.clear();
+                    }
+                })
+                .onErrorResume(e -> {
+                    log.debug("区块 TOTP ConfigMap 不存在或加载失败");
+                    BLOCK_TOTP_CACHE.clear();
+                    return Mono.empty();
+                })
+                .then();
+    }
+
     private String processEncryptBlocks(String content) {
         Matcher matcher = ENCRYPT_PATTERN.matcher(content);
         StringBuffer sb = new StringBuffer();
@@ -214,6 +256,9 @@ public class EncryptContentProcessor implements ReactivePostContentHandler {
             String hintType = extractAttribute(attributes, "hint-type", "text");
             String password = extractAttribute(attributes, "password", "");
             String expires = extractAttribute(attributes, "expires", "");
+            String totpId = extractAttribute(attributes, "totp-id", "");
+
+            log.info("解析加密区块属性 - blockId 将生成, totpId: '{}', attributes: {}", totpId, attributes);
 
             // 检查是否已过期
             if (!expires.isEmpty()) {
@@ -240,7 +285,12 @@ public class EncryptContentProcessor implements ReactivePostContentHandler {
                     type,
                     passwordHash,
                     encryptedContent,
-                    hint);
+                    hint,
+                    totpId);
+
+            log.info("存储加密区块 - blockId: {}, type: {}, totpId: '{}', hasTotpId: {}",
+                    blockId, type, block.totpId, (block.totpId != null && !block.totpId.isEmpty()));
+
             ENCRYPTED_BLOCKS.put(blockId, block);
 
             // 生成占位符 HTML（不包含加密内容！）
@@ -373,8 +423,20 @@ public class EncryptContentProcessor implements ReactivePostContentHandler {
         boolean passwordValid = false;
         String unlockMethod = "";
 
-        // 1. 尝试 TOTP 动态密码（6位纯数字）- 遍历所有启用的密码
-        if (password.matches("\\d{6}") && !totpPasswords.isEmpty()) {
+        // 1. 尝试区块级 TOTP（如果区块有 totp-id）
+        if (password.matches("\\d{6}") && block.totpId != null && !block.totpId.isEmpty()) {
+            log.info("尝试区块 TOTP 验证 - blockId: {}, totpId: {}, password: {}", blockId, block.totpId, password);
+            if (verifyBlockTotp(block.totpId, password)) {
+                passwordValid = true;
+                unlockMethod = "区块动态密码";
+                log.info("区块 TOTP 验证成功！");
+            } else {
+                log.warn("区块 TOTP 验证失败 - totpId: {}, cacheSize: {}", block.totpId, BLOCK_TOTP_CACHE.size());
+            }
+        }
+
+        // 2. 尝试全局 TOTP 动态密码（6位纯数字）- 遍历所有启用的密码
+        if (!passwordValid && password.matches("\\d{6}") && !totpPasswords.isEmpty()) {
             for (TotpPassword totp : totpPasswords) {
                 if (!totp.isEnabled())
                     continue;
@@ -383,7 +445,7 @@ public class EncryptContentProcessor implements ReactivePostContentHandler {
                             totp.getSecret(), password,
                             totp.getCreatedAt(), totp.getDurationDays())) {
                         passwordValid = true;
-                        unlockMethod = "TOTP动态密码 (" + totp.getName() + ")";
+                        unlockMethod = "全局动态密码 (" + totp.getName() + ")";
                         break;
                     }
                 } catch (Exception e) {
@@ -392,13 +454,13 @@ public class EncryptContentProcessor implements ReactivePostContentHandler {
             }
         }
 
-        // 2. 尝试万能密钥
+        // 3. 尝试万能密钥
         if (!passwordValid && !masterKey.isEmpty() && masterKey.equals(password)) {
             passwordValid = true;
             unlockMethod = "万能密钥";
         }
 
-        // 3. 尝试区块固定密码（需要区块有设置密码，且用户输入非空）
+        // 4. 尝试区块固定密码（需要区块有设置密码，且用户输入非空）
         if (!passwordValid && !password.isEmpty() && block.passwordHash != null
                 && !block.passwordHash.isEmpty() && PASSWORD_ENCODER.matches(password, block.passwordHash)) {
             passwordValid = true;
@@ -496,7 +558,8 @@ public class EncryptContentProcessor implements ReactivePostContentHandler {
             String type,
             String passwordHash,
             String content,
-            String hint) {
+            String hint,
+            String totpId) {
     }
 
     public record VerifyResult(
@@ -511,6 +574,51 @@ public class EncryptContentProcessor implements ReactivePostContentHandler {
             int maxFailAttempts,
             int lockDurationMinutes,
             boolean enableUnlockLog) {
+    }
+
+    // 区块 TOTP 配置（与 BlockTotpEndpoint 保持一致）
+    public static class BlockTotpConfig {
+        public String secret;
+        public int durationDays;
+        public String createdAt;
+        public String label;
+        public boolean enabled;
+    }
+
+    /**
+     * 验证区块 TOTP 密码（同步方法，从缓存读取）
+     */
+    private static boolean verifyBlockTotp(String blockId, String inputCode) {
+        log.info("verifyBlockTotp 调用 - blockId: {}, inputCode: {}, 缓存中的keys: {}",
+                blockId, inputCode, BLOCK_TOTP_CACHE.keySet());
+
+        BlockTotpConfig config = BLOCK_TOTP_CACHE.get(blockId);
+        if (config == null) {
+            log.warn("缓存中未找到区块 TOTP 配置 - blockId: {}", blockId);
+            return false;
+        }
+        if (!config.enabled) {
+            log.warn("区块 TOTP 已禁用 - blockId: {}", blockId);
+            return false;
+        }
+
+        try {
+            LocalDateTime createdAt = LocalDateTime.parse(config.createdAt);
+            String expectedCode = TotpUtils.getCodeByCreationTime(
+                    config.secret, createdAt, config.durationDays);
+
+            log.info("区块 TOTP 验证详情 - blockId: {}, 期望密码: {}, 输入密码: {}, createdAt: {}, durationDays: {}",
+                    blockId, expectedCode, inputCode, createdAt, config.durationDays);
+
+            boolean result = TotpUtils.verifyCodeByCreationTime(
+                    config.secret, inputCode, createdAt, config.durationDays);
+
+            log.info("区块 TOTP 验证结果 - blockId: {}, result: {}", blockId, result);
+            return result;
+        } catch (Exception e) {
+            log.error("区块 TOTP 验证异常 - blockId: {}, error: {}", blockId, e.getMessage(), e);
+            return false;
+        }
     }
 
     // 失败尝试信息

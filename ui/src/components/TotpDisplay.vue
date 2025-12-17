@@ -26,6 +26,20 @@ const newPasswordName = ref("");
 const newPasswordDays = ref(7);
 const refreshInterval = ref<number | null>(null);
 
+// 区块级 TOTP
+interface BlockTotpInfo {
+  blockId: string;
+  label: string;
+  currentCode: string;
+  remainingTime: string;
+  durationDays: number;
+  createdAt: string;
+}
+
+const showBlockSection = ref(false);
+const blockTotps = ref<BlockTotpInfo[]>([]);
+const loadingBlocks = ref(false);
+
 // 获取密码列表
 async function fetchPasswords() {
   try {
@@ -99,9 +113,49 @@ async function copyCode(code: string) {
   }
 }
 
+// 获取区块级 TOTP 列表
+async function fetchBlockTotps() {
+  loadingBlocks.value = true;
+  try {
+    const response = await axios.get<BlockTotpInfo[]>(
+      "/apis/api.encrypt.halo.run/v1alpha1/block-totp/list"
+    );
+    blockTotps.value = response.data;
+  } catch (error) {
+    console.error("获取区块 TOTP 列表失败", error);
+    blockTotps.value = [];
+  } finally {
+    loadingBlocks.value = false;
+  }
+}
+
+// 复制区块密码
+function copyBlockCode(code: string) {
+  copyCode(code);
+}
+
+// 删除区块 TOTP
+async function deleteBlockTotp(blockId: string, label: string) {
+  if (!confirm(`确定要删除区块密码「${label}」吗？`)) {
+    return;
+  }
+  
+  try {
+    await axios.delete(`/apis/api.encrypt.halo.run/v1alpha1/block-totp/${blockId}`);
+    Toast.success("删除成功");
+    await fetchBlockTotps();
+  } catch (error) {
+    Toast.error("删除失败");
+  }
+}
+
 onMounted(() => {
   fetchPasswords();
-  refreshInterval.value = window.setInterval(fetchPasswords, 30000);
+  fetchBlockTotps();
+  refreshInterval.value = window.setInterval(() => {
+    fetchPasswords();
+    fetchBlockTotps();
+  }, 30000);
 });
 
 onUnmounted(() => {
@@ -193,6 +247,54 @@ onUnmounted(() => {
         <li>可创建多个不同用途的密码（如 VIP 周密码、临时密码等）</li>
         <li>任意一个有效密码都可以解锁加密内容</li>
       </ul>
+    </div>
+
+    <!-- 区块级动态密码 -->
+    <div class="block-totp-section">
+      <div class="section-header" @click="showBlockSection = !showBlockSection">
+        <h3>📦 区块动态密码</h3>
+        <span class="toggle-icon">{{ showBlockSection ? '▼' : '▶' }}</span>
+      </div>
+      
+      <div v-if="showBlockSection" class="block-content">
+        <p class="section-desc">独立加密区块的动态密码列表</p>
+        
+        <!-- Loading 状态 -->
+        <div v-if="loadingBlocks" class="loading-state">
+          <div class="spinner"></div>
+          <p>加载中...</p>
+        </div>
+        
+        <!-- 区块列表 -->
+        <div v-else-if="blockTotps.length > 0" class="block-list">
+          <div v-for="block in blockTotps" :key="block.blockId" class="block-card">
+            <div class="block-header">
+              <h4>{{ block.label }}</h4>
+              <span class="duration-badge">{{ block.durationDays }}天有效</span>
+            </div>
+            <div class="block-code-section">
+              <div class="code-display">{{ block.currentCode }}</div>
+              <button class="copy-btn" @click="copyBlockCode(block.currentCode)" title="复制密码">
+                📋
+              </button>
+              <button class="delete-btn" @click="deleteBlockTotp(block.blockId, block.label)" title="删除">
+                🗑️
+              </button>
+            </div>
+            <div class="block-meta">
+              <span>剩余时间: {{ block.remainingTime }}</span>
+              <span class="block-id">ID: {{ block.blockId }}</span>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 空状态 -->
+        <div v-else class="empty-state">
+          <div class="empty-icon">📦</div>
+          <p>还没有区块动态密码</p>
+          <p class="hint">在编辑器中插入加密区块时，可以启用独立动态密码</p>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -424,5 +526,152 @@ onUnmounted(() => {
     border-color: #334155;
     color: #e2e8f0;
   }
+}
+
+/* 区块级动态密码 */
+.block-totp-section {
+  margin-top: 32px;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  background: #f8fafc;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.section-header:hover {
+  background: #f1f5f9;
+}
+
+.section-header h3 {
+  margin: 0;
+  font-size: 18px;
+  color: #1e293b;
+}
+
+.toggle-icon {
+  font-size: 14px;
+  color: #64748b;
+}
+
+.block-content {
+  padding: 16px 0;
+}
+
+.section-desc {
+  color: #64748b;
+  margin-bottom: 16px;
+}
+
+.loading-state {
+  text-align: center;
+  padding: 40px;
+  color: #64748b;
+}
+
+.spinner {
+  display: inline-block;
+  width: 24px;
+  height: 24px;
+  border: 3px solid #e2e8f0;
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.block-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.block-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 16px;
+  transition: 0.2s;
+}
+
+.block-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.block-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.block-header h4 {
+  margin: 0;
+  font-size: 16px;
+  color: #1e293b;
+}
+
+.duration-badge {
+  background: #dbeafe;
+  color: #1e40af;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.block-code-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.code-display {
+  flex: 1;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 16px;
+  border-radius: 8px;
+  font-size: 24px;
+  font-weight: 600;
+  text-align: center;
+  letter-spacing: 4px;
+}
+
+.block-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.block-id {
+  font-family: monospace;
+  font-size: 11px;
+}
+
+.delete-btn {
+  background: #fee2e2;
+  color: #dc2626;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 20px;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.delete-btn:hover {
+  background: #fecaca;
 }
 </style>
