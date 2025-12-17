@@ -184,7 +184,9 @@ function getExpiresDate(): string {
 
 // 生成区块级 TOTP
 async function generateBlockTotp() {
-  // 检查文章是否已保存
+  if (isGeneratingBlockTotp.value || blockTotpGenerated.value) return;
+
+  // 1. Check if post is saved (has name)
   const urlParams = new URLSearchParams(window.location.search);
   const postName = urlParams.get('name');
   
@@ -192,89 +194,81 @@ async function generateBlockTotp() {
     Toast.warning('请先保存文章后再生成区块动态密码');
     return;
   }
-  
+
   isGeneratingBlockTotp.value = true;
-  generatedBlockId.value = `totp-${Date.now().toString(36)}`;
-  
-  // 尝试获取文章标题
-  let articleTitle = "未命名文章";
+  generatedBlockId.value = ""; // Reset
+
   try {
-    // 方法1: 从URL参数获取文章名称
-    const urlParams = new URLSearchParams(window.location.search);
-    const postName = urlParams.get('name');
-    
-    console.log('获取文章标题 - postName:', postName);
-    
-    if (postName) {
-      // 尝试从Halo API获取文章信息
-      const response = await fetch(`/apis/content.halo.run/v1alpha1/posts/${postName}`);
-      console.log('API响应状态:', response.status);
-      
-      if (response.ok) {
-        const postData = await response.json();
-        console.log('文章数据:', postData);
-        articleTitle = postData.spec?.title || articleTitle;
-        console.log('提取的文章标题:', articleTitle);
-      }
+    // 2. Get Article Title
+    let articleTitle = "未命名文章";
+    try {
+        if (postName) {
+            const response = await fetch(`/apis/content.halo.run/v1alpha1/posts/${postName}`);
+            if (response.ok) {
+                const postData = await response.json();
+                articleTitle = postData.spec?.title || articleTitle;
+            }
+        }
+        if (articleTitle === "未命名文章" && props.editor) {
+             // Fallback attempt
+             const doc = props.editor.state.doc;
+             if (doc && doc.content) {
+                  articleTitle = `文章_${new Date().toLocaleDateString()}`;
+             }
+        }
+    } catch (e) {
+        console.error("Failed to fetch title", e);
     }
-    
-    // 方法2: 如果仍然是默认值，尝试从editor中获取
-    if (articleTitle === "未命名文章" && props.editor) {
-      // 尝试从编辑器的view中获取文章标题
-      const doc = props.editor.state.doc;
-      if (doc && doc.content) {
-        // 简单地使用时间戳作为标识
-        articleTitle = `文章_${new Date().toLocaleDateString()}`;
-      }
+
+    // 3. Generate ID and Label
+    const customBlockId = encryptMode.value === 'full' 
+        ? 'article-' + Math.random().toString(36).substring(2, 10) 
+        : `totp-${Date.now().toString(36)}`;
+
+    let labelSuffix = "";
+    if (encryptMode.value === 'full') {
+      labelSuffix = "全文加密";
+    } else {
+      const blockNumber = (document.querySelectorAll('[data-type="encrypt-block"]').length || 0) + 1;
+      labelSuffix = `区块${blockNumber}`;
     }
-  } catch (error) {
-    console.error('获取文章标题失败:', error);
-  }
-  
-  // 计算区块序号
-  let labelSuffix = "";
-  if (encryptMode.value === 'full') {
-    labelSuffix = "全文加密";
-  } else {
-    // 简单地通过DOM查找当前页面已有的加密块数量
-    const blockNumber = (document.querySelectorAll('[data-type="encrypt-block"]').length || 0) + 1;
-    labelSuffix = `区块${blockNumber}`;
-  }
-  
-  const label = `${articleTitle} - ${labelSuffix}`;
-  
-  try {
+    const label = `${articleTitle} - ${labelSuffix}`;
+
+    // 4. API Call
+    const payload = {
+       blockId: customBlockId,
+       durationDays: parseInt(blockTotpDuration.value),
+       label: label
+    };
+
     const response = await fetch('/apis/api.encrypt.halo.run/v1alpha1/block-totp/generate', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        blockId: generatedBlockId.value,
-        durationDays: parseInt(blockTotpDuration.value),
-        label: label
-      }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
     });
-    
+
     if (!response.ok) {
-      throw new Error('生成失败');
+        const err = await response.json();
+        throw new Error(err.error || '生成失败');
     }
-    
+
     const result = await response.json();
-    
     if (result.success) {
-      blockTotpGenerated.value = true;
-      Toast.success(`区块动态密码已生成 (${result.currentCode})，有效期 ${blockTotpDuration.value} 天`);
+        blockTotpGenerated.value = true;
+        generatedBlockId.value = result.blockId;
+        Toast.success(`区块动态密码已生成 (${result.currentCode})，有效期 ${blockTotpDuration.value} 天`);
     } else {
-      throw new Error(result.error || '生成失败');
+        throw new Error(result.error || '生成失败');
     }
+
   } catch (error: any) {
-    Toast.error(`生成失败: ${error.message}`);
-    console.error('generateBlockTotp error:', error);
+    console.error(error);
+    Toast.error(error.message || '生成失败');
   } finally {
     isGeneratingBlockTotp.value = false;
   }
 }
+
 
 // 部分加密：插入 [encrypt] 标签
 function insertPartialEncryption() {

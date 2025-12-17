@@ -4,9 +4,11 @@ import static org.springdoc.core.fn.builders.apiresponse.Builder.responseBuilder
 import static org.springdoc.core.fn.builders.requestbody.Builder.requestBodyBuilder;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -74,6 +76,12 @@ public class BlockTotpEndpoint implements run.halo.app.core.extension.endpoint.C
                                 .tag(tag)
                                 .response(responseBuilder()
                                         .implementation(Map.class)))
+                .GET("category-totp/list", this::listCategoryTotpSettings,
+                        builder -> builder.operationId("listCategoryTotpSettings")
+                                .description("获取开启了 TOTP 的分类配置")
+                                .tag(tag)
+                                .response(responseBuilder()
+                                        .implementation(List.class)))
                 .build();
     }
 
@@ -242,7 +250,8 @@ public class BlockTotpEndpoint implements run.halo.app.core.extension.endpoint.C
                         String existingJson = data.get("blocks");
                         if (existingJson != null && !existingJson.isEmpty()) {
                             blocks = OBJECT_MAPPER.readValue(existingJson,
-                                    new TypeReference<Map<String, BlockTotpConfig>>() {});
+                                    new TypeReference<Map<String, BlockTotpConfig>>() {
+                                    });
                         }
                         // 添加新配置
                         blocks.put(blockId, config);
@@ -305,7 +314,8 @@ public class BlockTotpEndpoint implements run.halo.app.core.extension.endpoint.C
                     }
                     try {
                         return OBJECT_MAPPER.readValue(json,
-                                new TypeReference<Map<String, BlockTotpConfig>>() {});
+                                new TypeReference<Map<String, BlockTotpConfig>>() {
+                                });
                     } catch (Exception e) {
                         log.error("解析区块 TOTP 配置失败", e);
                         return new HashMap<String, BlockTotpConfig>();
@@ -330,7 +340,8 @@ public class BlockTotpEndpoint implements run.halo.app.core.extension.endpoint.C
                             return Mono.just(false);
                         }
                         Map<String, BlockTotpConfig> blocks = OBJECT_MAPPER.readValue(json,
-                                new TypeReference<Map<String, BlockTotpConfig>>() {});
+                                new TypeReference<Map<String, BlockTotpConfig>>() {
+                                });
                         if (blocks.remove(blockId) != null) {
                             data.put("blocks", OBJECT_MAPPER.writeValueAsString(blocks));
                             return client.update(configMap).thenReturn(true);
@@ -367,6 +378,61 @@ public class BlockTotpEndpoint implements run.halo.app.core.extension.endpoint.C
                             config.getSecret(), inputCode, createdAt, config.getDurationDays());
                 })
                 .defaultIfEmpty(false);
+    }
+
+    // ========== 分类 TOTP 设置列表 ==========
+
+    /**
+     * 获取开启了 TOTP 的分类设置列表
+     */
+    private Mono<ServerResponse> listCategoryTotpSettings(ServerRequest request) {
+        return settingFetcher.get("categoryEncrypt")
+                .map(setting -> {
+                    List<Map<String, Object>> enabledCategories = new ArrayList<>();
+                    JsonNode categorySettings = setting.get("categoryEncryptSettings");
+                    if (categorySettings != null && !categorySettings.isNull()) {
+                        JsonNode categoryList = categorySettings.get("categoryList");
+                        if (categoryList != null && categoryList.isArray()) {
+                            for (JsonNode wrapper : categoryList) {
+                                // FormKit repeater 可能把项包装在 "item" 中，也可能直接是对象
+                                JsonNode item = wrapper.has("item") ? wrapper.get("item") : wrapper;
+
+                                boolean enableTotp = getBooleanValue(item, "enableTotp", false);
+                                if (enableTotp) {
+                                    String slug = getTextValue(item, "categoryName");
+                                    if (slug != null && !slug.isEmpty()) {
+                                        Map<String, Object> cat = new HashMap<>();
+                                        cat.put("slug", slug);
+                                        cat.put("name", slug);
+                                        cat.put("hint", getTextValue(item, "hint"));
+                                        String durationStr = getTextValue(item, "totpDuration");
+                                        cat.put("totpDuration", durationStr != null ? durationStr : "7");
+                                        enabledCategories.add(cat);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    return enabledCategories;
+                })
+                .flatMap(categories -> ServerResponse.ok().bodyValue(categories))
+                .switchIfEmpty(ServerResponse.ok().bodyValue(List.of()));
+    }
+
+    private String getTextValue(JsonNode node, String field) {
+        JsonNode fieldNode = node.get(field);
+        if (fieldNode == null || fieldNode.isNull()) {
+            return null;
+        }
+        return fieldNode.asText();
+    }
+
+    private boolean getBooleanValue(JsonNode node, String field, boolean defaultValue) {
+        JsonNode fieldNode = node.get(field);
+        if (fieldNode == null || fieldNode.isNull()) {
+            return defaultValue;
+        }
+        return fieldNode.asBoolean(defaultValue);
     }
 
     // ========== 数据类 ==========

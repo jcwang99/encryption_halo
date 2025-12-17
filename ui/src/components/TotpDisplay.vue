@@ -38,7 +38,25 @@ interface BlockTotpInfo {
 
 const showBlockSection = ref(false);
 const blockTotps = ref<BlockTotpInfo[]>([]);
+const showArticleSection = ref(false);
+const articleTotps = ref<BlockTotpInfo[]>([]);
 const loadingBlocks = ref(false);
+
+// 分类 TOTP
+interface CategoryTotpInfo {
+  slug: string;
+  name: string;      // 显示名称 (slug)
+  hint?: string;
+  enabled: boolean;  // 设置中是否启用
+  hasKey: boolean;   // 是否已生成密钥
+  currentCode?: string;
+  remainingTime?: string;
+  durationDays?: number;
+}
+
+const showCategorySection = ref(false);
+const categoryTotps = ref<CategoryTotpInfo[]>([]);
+const loadingCategories = ref(false);
 
 // 获取密码列表
 async function fetchPasswords() {
@@ -113,6 +131,105 @@ async function copyCode(code: string) {
   }
 }
 
+// 获取分类 TOTP 列表
+async function fetchCategoryTotps() {
+  loadingCategories.value = true;
+  try {
+    // 1. 从后端 API 直接获取启用了 TOTP 的分类列表
+    const categoriesResponse = await axios.get(
+      "/apis/api.encrypt.halo.run/v1alpha1/category-totp/list"
+    );
+    
+    // 2. 获取现有的 TOTP 列表 (ConfigMap)
+    const listResponse = await axios.get(
+      "/apis/api.encrypt.halo.run/v1alpha1/block-totp/list"
+    );
+    
+    const existingKeys = new Map<String, any>();
+    if (Array.isArray(listResponse.data)) {
+       listResponse.data.forEach((block: any) => {
+         existingKeys.set(block.blockId, block);
+       });
+    } else if (listResponse.data && Array.isArray(listResponse.data.blocks)) {
+       // 兼容性保留
+       listResponse.data.blocks.forEach((block: any) => {
+         existingKeys.set(block.blockId, block);
+       });
+    }
+
+    // 3. 构建列表
+    const categories: CategoryTotpInfo[] = [];
+    const enabledCats = categoriesResponse.data || [];
+    
+    enabledCats.forEach((item: any) => {
+       const slug = item.slug;
+       const totpId = `category-${slug}`;
+       const keyInfo = existingKeys.get(totpId);
+       
+       categories.push({
+         slug: slug,
+         name: slug,
+         hint: item.hint,
+         enabled: true,
+         hasKey: !!keyInfo,
+         currentCode: keyInfo?.currentCode,
+         remainingTime: keyInfo?.remainingTime,
+         durationDays: item.totpDuration ? parseInt(item.totpDuration) : 7
+       });
+    });
+    
+    categoryTotps.value = categories;
+  } catch (error) {
+    console.error("获取分类 TOTP 失败", error);
+  } finally {
+    loadingCategories.value = false;
+  }
+}
+
+// 生成分类 TOTP
+async function generateCategoryTotp(category: CategoryTotpInfo) {
+  try {
+    const totpId = `category-${category.slug}`;
+    const label = `分类: ${category.slug}`;
+    
+    const response = await axios.post(
+      "/apis/api.encrypt.halo.run/v1alpha1/block-totp/generate",
+      {
+        blockId: totpId,
+        durationDays: category.durationDays || 7,
+        label: label
+      }
+    );
+
+    if (response.data.success) {
+      Toast.success(`生成成功: ${response.data.currentCode}`);
+      await fetchCategoryTotps();
+    } else {
+      Toast.error("生成失败");
+    }
+  } catch (error) {
+    Toast.error("生成失败");
+    console.error(error);
+  }
+}
+
+// 删除分类 TOTP (实际上是删除了 ConfigMap 中的 key)
+async function deleteCategoryTotp(category: CategoryTotpInfo) {
+  if (!confirm(`确定要删除分类 ${category.slug} 的动态密码吗？删除后需重新生成。`)) {
+    return;
+  }
+  
+  try {
+    const totpId = `category-${category.slug}`;
+    await axios.delete(`/apis/api.encrypt.halo.run/v1alpha1/block-totp/${totpId}`);
+    Toast.success("删除成功");
+    await fetchCategoryTotps();
+  } catch (error) {
+    Toast.error("删除失败");
+  }
+}
+
+
 // 获取区块级 TOTP 列表
 async function fetchBlockTotps() {
   loadingBlocks.value = true;
@@ -120,7 +237,27 @@ async function fetchBlockTotps() {
     const response = await axios.get<BlockTotpInfo[]>(
       "/apis/api.encrypt.halo.run/v1alpha1/block-totp/list"
     );
-    blockTotps.value = response.data;
+    
+    const allBlocks = response.data;
+    const blocks: BlockTotpInfo[] = [];
+    const articles: BlockTotpInfo[] = [];
+    
+    if (Array.isArray(allBlocks)) {
+        allBlocks.forEach((item: any) => {
+            if (item.blockId.startsWith('category-')) {
+                // Ignore, handled by Category section
+                return; 
+            }
+            if (item.blockId.startsWith('article-')) {
+                articles.push(item);
+            } else {
+                blocks.push(item);
+            }
+        });
+    }
+    
+    blockTotps.value = blocks;
+    articleTotps.value = articles;
   } catch (error) {
     console.error("获取区块 TOTP 列表失败", error);
     blockTotps.value = [];
@@ -152,9 +289,11 @@ async function deleteBlockTotp(blockId: string, label: string) {
 onMounted(() => {
   fetchPasswords();
   fetchBlockTotps();
+  fetchCategoryTotps();
   refreshInterval.value = window.setInterval(() => {
     fetchPasswords();
     fetchBlockTotps();
+    fetchCategoryTotps();
   }, 30000);
 });
 
@@ -247,6 +386,117 @@ onUnmounted(() => {
         <li>可创建多个不同用途的密码（如 VIP 周密码、临时密码等）</li>
         <li>任意一个有效密码都可以解锁加密内容</li>
       </ul>
+    </div>
+
+    <!-- 分类动态密码 -->
+    <div class="category-totp-section block-totp-section">
+      <div class="section-header" @click="showCategorySection = !showCategorySection">
+        <h3>📂 分类动态密码</h3>
+        <span class="toggle-icon">{{ showCategorySection ? '▼' : '▶' }}</span>
+      </div>
+      
+      <div v-if="showCategorySection" class="block-content">
+        <p class="section-desc">已在插件设置中启用动态密码的分类</p>
+        
+        <!-- Loading 状态 -->
+        <div v-if="loadingCategories" class="loading-state">
+          <div class="spinner"></div>
+          <p>加载中...</p>
+        </div>
+        
+        <!-- 分类列表 -->
+        <div v-else-if="categoryTotps.length > 0" class="block-list">
+          <div v-for="cat in categoryTotps" :key="cat.slug" class="block-card">
+            <div class="block-header">
+              <h4>{{ cat.name }}</h4>
+              <span class="duration-badge" v-if="cat.hasKey">{{ cat.durationDays }}天有效</span>
+              <span class="status-badge warning" v-else>未生成</span>
+            </div>
+            
+            <div class="block-meta" v-if="cat.hint">
+              <span>提示: {{ cat.hint }}</span>
+            </div>
+
+            <!-- 已生成密钥 -->
+            <div v-if="cat.hasKey" class="block-code-section">
+              <div class="code-display">{{ cat.currentCode }}</div>
+              <button class="copy-btn" @click="copyBlockCode(cat.currentCode!)" title="复制密码">
+                📋
+              </button>
+              <button class="delete-btn" @click="deleteCategoryTotp(cat)" title="删除">
+                🗑️
+              </button>
+            </div>
+            
+            <!-- 未生成密钥 -->
+            <div v-else class="generate-section">
+              <VButton size="sm" @click="generateCategoryTotp(cat)">
+                生成动态密码
+              </VButton>
+            </div>
+
+            <div class="block-meta" v-if="cat.hasKey">
+              <span>剩余时间: {{ cat.remainingTime }}</span>
+              <span class="block-id">ID: category-{{ cat.slug }}</span>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 空状态 -->
+        <div v-else class="empty-state">
+          <div class="empty-icon">📂</div>
+          <p>没有启用动态密码的分类</p>
+          <p class="hint">请先在插件设置 -> 分类加密中开启</p>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 全文动态密码 -->
+    <div class="article-totp-section block-totp-section">
+      <div class="section-header" @click="showArticleSection = !showArticleSection">
+        <h3>📄 全文动态密码</h3>
+        <span class="toggle-icon">{{ showArticleSection ? '▼' : '▶' }}</span>
+      </div>
+      
+      <div v-if="showArticleSection" class="block-content">
+        <p class="section-desc">全文加密文章的动态密码列表</p>
+        
+        <!-- Loading 状态 -->
+        <div v-if="loadingBlocks" class="loading-state">
+          <div class="spinner"></div>
+          <p>加载中...</p>
+        </div>
+        
+        <!-- 列表 -->
+        <div v-else-if="articleTotps.length > 0" class="block-list">
+          <div v-for="block in articleTotps" :key="block.blockId" class="block-card">
+            <div class="block-header">
+              <h4>{{ block.label }}</h4>
+              <span class="duration-badge">{{ block.durationDays }}天有效</span>
+            </div>
+            <div class="block-code-section">
+              <div class="code-display">{{ block.currentCode }}</div>
+              <button class="copy-btn" @click="copyBlockCode(block.currentCode)" title="复制密码">
+                📋
+              </button>
+              <button class="delete-btn" @click="deleteBlockTotp(block.blockId, block.label)" title="删除">
+                🗑️
+              </button>
+            </div>
+            <div class="block-meta">
+              <span>剩余时间: {{ block.remainingTime }}</span>
+              <span class="block-id">ID: {{ block.blockId }}</span>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 空状态 -->
+        <div v-else class="empty-state">
+          <div class="empty-icon">📄</div>
+          <p>还没有全文动态密码</p>
+          <p class="hint">对整篇文章进行加密时生成的动态密码会显示在这里</p>
+        </div>
+      </div>
     </div>
 
     <!-- 区块级动态密码 -->
@@ -673,5 +923,33 @@ onUnmounted(() => {
 
 .delete-btn:hover {
   background: #fecaca;
+}
+
+.category-totp-section {
+  margin-top: 32px;
+}
+
+.status-badge {
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  background: #e2e8f0;
+  color: #64748b;
+}
+
+.status-badge.warning {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.generate-section {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 12px;
+  padding: 16px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px dashed #cbd5e1;
 }
 </style>

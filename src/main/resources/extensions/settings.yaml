@@ -225,6 +225,25 @@ spec:
                       name: enabled
                       label: 启用
                       value: true
+                    - $formkit: checkbox
+                      name: enableTotp
+                      label: 启用动态密码
+                      value: false
+                      help: "启用后需在「工具-动态密码」中生成密钥"
+                    - $formkit: select
+                      name: totpDuration
+                      label: 动态密码有效期
+                      value: "7"
+                      options:
+                        - label: 1天
+                          value: "1"
+                        - label: 7天
+                          value: "7"
+                        - label: 30天
+                          value: "30"
+                        - label: 90天
+                          value: "90"
+                      if: "$get(enableTotp).value === true"
 
     - group: paid
       label: 付费设置（开发中）

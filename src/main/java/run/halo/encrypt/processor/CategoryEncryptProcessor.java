@@ -129,11 +129,28 @@ public class CategoryEncryptProcessor implements ReactivePostContentHandler {
                     hint = "此分类内容需要密码查看";
                 }
 
-                String wrappedContent = String.format(
-                        "[encrypt type=\"password\" password=\"%s\" hint=\"%s\"]%s[/encrypt]",
-                        escapeAttr(password),
-                        escapeAttr(hint),
-                        content);
+                boolean enableTotp = getBooleanValue(item, "enableTotp", false);
+                String totpId = "";
+                if (enableTotp) {
+                    totpId = "category-" + configCategorySlug;
+                    log.debug("分类 {} 启用了 TOTP, ID: {}", configCategorySlug, totpId);
+                }
+
+                String wrappedContent;
+                if (!totpId.isEmpty()) {
+                    wrappedContent = String.format(
+                            "[encrypt type=\"password\" password=\"%s\" hint=\"%s\" totp-id=\"%s\"]%s[/encrypt]",
+                            escapeAttr(password),
+                            escapeAttr(hint),
+                            escapeAttr(totpId),
+                            content);
+                } else {
+                    wrappedContent = String.format(
+                            "[encrypt type=\"password\" password=\"%s\" hint=\"%s\"]%s[/encrypt]",
+                            escapeAttr(password),
+                            escapeAttr(hint),
+                            content);
+                }
 
                 context.setContent(wrappedContent);
 
