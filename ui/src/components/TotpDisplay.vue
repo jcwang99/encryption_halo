@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from "vue";
-import { VButton, VSpace, Toast, Dialog } from "@halo-dev/components";
+import { VButton, Toast } from "@halo-dev/components";
 import axios from "axios";
 
 interface PasswordInfo {
@@ -81,7 +81,7 @@ async function createPassword() {
   
   loading.value = true;
   try {
-    const response = await axios.post(
+    await axios.post(
       "/apis/encrypt.halo.run/v1alpha1/totp/create",
       {
         name: newPasswordName.value,
@@ -93,7 +93,7 @@ async function createPassword() {
     newPasswordName.value = "";
     newPasswordDays.value = 7;
     await fetchPasswords();
-  } catch (error) {
+  } catch {
     Toast.error("创建失败，请稍后重试");
   } finally {
     loading.value = false;
@@ -110,7 +110,7 @@ async function deletePassword(id: string, name: string) {
     await axios.delete(`/apis/encrypt.halo.run/v1alpha1/totp/${id}`);
     Toast.success("删除成功");
     await fetchPasswords();
-  } catch (error) {
+  } catch {
     Toast.error("删除失败");
   }
 }
@@ -145,22 +145,29 @@ async function fetchCategoryTotps() {
       "/apis/api.encrypt.halo.run/v1alpha1/block-totp/list"
     );
     
-    const existingKeys = new Map<String, any>();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const existingKeys = new Map<string, any>();
+     
     if (Array.isArray(listResponse.data)) {
+       // eslint-disable-next-line @typescript-eslint/no-explicit-any
        listResponse.data.forEach((block: any) => {
          existingKeys.set(block.blockId, block);
        });
-    } else if (listResponse.data && Array.isArray(listResponse.data.blocks)) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } else if (listResponse.data && Array.isArray((listResponse.data as any).blocks)) {
        // 兼容性保留
-       listResponse.data.blocks.forEach((block: any) => {
+       // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       (listResponse.data as any).blocks.forEach((block: any) => {
          existingKeys.set(block.blockId, block);
        });
     }
 
     // 3. 构建列表
     const categories: CategoryTotpInfo[] = [];
+     
     const enabledCats = categoriesResponse.data || [];
     
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     enabledCats.forEach((item: any) => {
        const slug = item.slug;
        const totpId = `category-${slug}`;
@@ -224,7 +231,7 @@ async function deleteCategoryTotp(category: CategoryTotpInfo) {
     await axios.delete(`/apis/api.encrypt.halo.run/v1alpha1/block-totp/${totpId}`);
     Toast.success("删除成功");
     await fetchCategoryTotps();
-  } catch (error) {
+  } catch {
     Toast.error("删除失败");
   }
 }
@@ -242,7 +249,9 @@ async function fetchBlockTotps() {
     const blocks: BlockTotpInfo[] = [];
     const articles: BlockTotpInfo[] = [];
     
+     
     if (Array.isArray(allBlocks)) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         allBlocks.forEach((item: any) => {
             if (item.blockId.startsWith('category-')) {
                 // Ignore, handled by Category section
@@ -281,7 +290,7 @@ async function deleteBlockTotp(blockId: string, label: string) {
     await axios.delete(`/apis/api.encrypt.halo.run/v1alpha1/block-totp/${blockId}`);
     Toast.success("删除成功");
     await fetchBlockTotps();
-  } catch (error) {
+  } catch {
     Toast.error("删除失败");
   }
 }

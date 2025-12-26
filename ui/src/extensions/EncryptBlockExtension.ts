@@ -5,7 +5,9 @@ import InsertEncryptBlockToolbarItem from '@/components/InsertEncryptBlockToolba
 
 export interface ToolbarItem {
     priority: number
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     component: any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     props: any
 }
 

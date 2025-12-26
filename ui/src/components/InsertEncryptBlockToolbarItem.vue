@@ -261,6 +261,7 @@ async function generateBlockTotp() {
         throw new Error(result.error || '生成失败');
     }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     console.error(error);
     Toast.error(error.message || '生成失败');
