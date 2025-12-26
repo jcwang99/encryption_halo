@@ -1,4 +1,4 @@
-import { definePlugin } from "@halo-dev/console-shared";
+import { definePlugin } from "@halo-dev/ui-shared";
 import EncryptBlockExtension from "@/extensions/EncryptBlockExtension";
 import TotpDisplay from "@/components/TotpDisplay.vue";
 import { markRaw } from "vue";

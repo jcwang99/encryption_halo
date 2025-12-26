@@ -2,6 +2,7 @@ import { rsbuildConfig } from '@halo-dev/ui-plugin-bundler-kit';
 import Icons from "unplugin-icons/rspack";
 import { pluginSass } from "@rsbuild/plugin-sass";
 
+// @ts-ignore
 export default rsbuildConfig({
   rsbuild: {
     resolve: {
@@ -16,4 +17,4 @@ export default rsbuildConfig({
       },
     },
   }
-})
+}) as any
